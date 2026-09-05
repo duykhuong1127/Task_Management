@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 100" width="340" height="100" fill="none">
+  <!-- Red main background -->
+  <path d="M0 0 H240 C230 40 215 70 190 100 H0 Z" fill="#E50012" />
+  <path d="M0 0 H235 C230 30 215 65 190 100 H0 Z" fill="#E50012" />
+  <rect width="340" height="100" fill="#E50012" />
+  
+  <!-- Right side graphic: Woven ribbons motif on white arc -->
+  <path d="M210 100 C240 70 250 30 260 0 H340 V100 Z" fill="#FFFFFF" opacity="0.0" />
+  
+  <!-- Stylized Thread/Ribbon curves -->
+  <g id="phong-phu-curves">
+    <!-- Outer curve path (White backing for crisp contrast) -->
+    <path d="M195 100 C220 70 245 25 285 5 C320 -10 340 15 335 45 C330 75 295 90 270 70 C250 55 260 25 285 22 C300 20 310 30 305 45" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- First grey ribbon (Ribbon 1) -->
+    <path d="M205 100 C225 72 245 35 275 12 C305 -10 330 10 326 38 C320 62 295 72 276 58 C265 48 270 30 286 28" fill="none" stroke="#717171" stroke-width="9" stroke-linecap="round" />
+    
+    <!-- Second grey ribbon (Ribbon 2 - parallel) -->
+    <path d="M225 100 C242 75 260 42 290 22 C315 5 336 22 332 45 C327 68 305 78 285 66" fill="none" stroke="#717171" stroke-width="9" stroke-linecap="round" />
+    
+    <!-- Red Accent Dot (Circular head) -->
+    <circle cx="318" cy="24" r="18" fill="#E50012" />
+  </g>
+
+  <!-- Brand Typography: PHONG PHU -->
+  <text x="14" y="52" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="34" letter-spacing="0.5">PHONG PHU</text>
+  
+  <!-- Brand Typography: Home Textile -->
+  <text x="15" y="80" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="700" font-size="20" letter-spacing="0.2">Home Textile</text>
+</svg>

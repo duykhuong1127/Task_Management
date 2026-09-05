@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Times New Roman', Times, 'Liberation Serif', serif;
+  --font-serif: 'Times New Roman', Times, 'Liberation Serif', serif;
+  --font-mono: 'Times New Roman', Times, 'Liberation Serif', serif;
+}
+
+@layer base {
+  :root {
+    --font-sans: 'Times New Roman', Times, 'Liberation Serif', serif;
+    --font-serif: 'Times New Roman', Times, 'Liberation Serif', serif;
+    --font-mono: 'Times New Roman', Times, 'Liberation Serif', serif;
+  }
+
+  html,
+  body {
+    font-family: 'Times New Roman', Times, 'Liberation Serif', serif;
+    background-color: #080808;
+    color: #D1D1D1;
+  }
+
+  *,
+  button,
+  input,
+  select,
+  textarea {
+    font-family: 'Times New Roman', Times, 'Liberation Serif', serif !important;
+  }
+}
+
+/* Custom scrollbar for dark elegance */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f3f;
+}
+

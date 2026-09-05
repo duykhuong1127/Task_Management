@@ -1,0 +1,6 @@
+{
+  "name": "Quản Lý Công Việc PWA",
+  "description": "Hệ thống Quản lý Công việc - CTY CP Dệt Gia Dụng Phong Phú (khu vực asia-southeast1, múi giờ Asia/Ho_Chi_Minh).",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

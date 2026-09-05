@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isActive() {
+      return isAuthenticated() && getUserData().status == 'ACTIVE';
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'ADMIN' && isActive();
+    }
+    
+    function isProjectMember(projectId) {
+      return isAdmin() || 
+        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+    
+    // User profiles & allowlist
+    match /users/{userId} {
+      // Anyone authenticated can read user profiles to render names/avatars
+      allow read: if isAuthenticated();
+      // Only Admin can create or update user roles & statuses
+      allow create, update: if isAdmin();
+      // Self-update allowed only for displayName and photoURL, never role or status
+      allow update: if isAuthenticated() && request.auth.uid == userId 
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'normalizedEmail']);
+      allow delete: if false; // Soft delete only
+    }
+    
+    // Projects collection
+    match /projects/{projectId} {
+      allow read: if isProjectMember(projectId);
+      allow create: if isActive();
+      allow update: if isProjectMember(projectId);
+      allow delete: if isAdmin();
+      
+      match /members/{memberId} {
+        allow read: if isProjectMember(projectId);
+        allow write: if isAdmin() || (isProjectMember(projectId) && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid);
+      }
+    }
+    
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      // Invariant: assignerId must equal current authenticated user
+      allow create: if isActive() 
+        && request.resource.data.assignerId == request.auth.uid
+        && request.resource.data.assigneeIds.size() > 0
+        && isProjectMember(request.resource.data.projectId);
+      
+      // Invariant: cannot forge assignerId or rewrite createdAt
+      allow update: if isProjectMember(resource.data.projectId)
+        && request.resource.data.assignerId == resource.data.assignerId;
+      
+      allow delete: if isAdmin() || (resource.data.assignerId == request.auth.uid);
+      
+      // Task Assignments subcollection
+      match /assignments/{assigneeUid} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId);
+        // Only assignee or assigner or admin can update progress
+        allow write: if isAdmin() 
+          || request.auth.uid == assigneeUid 
+          || request.auth.uid == get(/databases/$(database)/documents/tasks/$(taskId)).data.assignerId;
+      }
+      
+      // Task Chat messages
+      match /messages/{messageId} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId);
+        
+        // T+15 Chat Retention Rule:
+        // Must be participant, senderId must equal auth uid, and chatWritableUntil must be valid
+        allow create: if isActive()
+          && isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId)
+          && request.resource.data.senderId == request.auth.uid
+          && (
+            !('chatWritableUntil' in get(/databases/$(database)/documents/tasks/$(taskId)).data)
+            || request.time <= get(/databases/$(database)/documents/tasks/$(taskId)).data.chatWritableUntil
+          );
+          
+        allow update: if request.auth.uid == resource.data.senderId
+          && (
+            !('chatWritableUntil' in get(/databases/$(database)/documents/tasks/$(taskId)).data)
+            || request.time <= get(/databases/$(database)/documents/tasks/$(taskId)).data.chatWritableUntil
+          );
+        allow delete: if isAdmin() || request.auth.uid == resource.data.senderId;
+      }
+      
+      // Task Files metadata
+      match /files/{fileId} {
+        allow read: if isProjectMember(resource.data.projectId);
+        allow create: if isActive() && isProjectMember(request.resource.data.projectId);
+        allow update, delete: if isAdmin() || resource.data.uploadedBy == request.auth.uid;
+      }
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read, update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isActive();
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Audit Logs - Strictly immutable and read-only for Admin
+    match /auditLogs/{eventId} {
+      allow read: if isAdmin();
+      allow create: if isActive();
+      allow update, delete: if false; // Append-only, never modifiable
+    }
+    
+    // FCM Device tokens
+    match /deviceTokens/{tokenId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == resource.data.uid;
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+    }
+  }
+}
