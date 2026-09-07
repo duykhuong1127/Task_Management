@@ -27,6 +27,19 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   const [deadline, setDeadline] = useState(defaultDeadline);
 
   const users = dataService.getUsers().filter((u) => u.status === 'ACTIVE');
+  // Only users who belong to the selected project can be assigned
+  const projectMembers = users.filter((u) => {
+    if (!projectId) return false;
+    return dataService.isUserInProject(projectId, u.uid);
+  });
+
+  const handleProjectChange = (newProjectId: string) => {
+    setProjectId(newProjectId);
+    // Remove any assignees that are not members of the newly selected project
+    setSelectedAssigneeIds((prev) =>
+      prev.filter((uid) => dataService.isUserInProject(newProjectId, uid))
+    );
+  };
 
   const toggleAssignee = (uid: string) => {
     if (selectedAssigneeIds.includes(uid)) {
@@ -91,7 +104,25 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {projects.length === 0 ? (
+          <div className="p-8 text-center space-y-4">
+            <div className="p-3 rounded-full bg-amber-500/10 text-amber-400 w-fit mx-auto border border-amber-500/20">
+              <FolderKanban className="w-8 h-8" />
+            </div>
+            <h3 className="text-white font-medium text-sm">Bạn Chưa Có Dự Án Khả Dụng</h3>
+            <p className="text-xs text-[#888] leading-relaxed max-w-sm mx-auto">
+              Chỉ các thành viên trực thuộc dự án mới có thể tạo và giao công việc. Vui lòng liên hệ Quản trị viên để được cấp quyền vào dự án.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded bg-[#222] hover:bg-[#333] text-xs text-white uppercase tracking-wider font-semibold"
+            >
+              Đóng
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           {/* Assigner invariant notification */}
           <div className="p-2.5 rounded bg-[#161616] border border-[#262626] text-[11px] text-[#888] flex items-center justify-between">
             <span>Người giao việc (Assigner):</span>
@@ -107,7 +138,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             <select
               id="select-create-project"
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+              onChange={(e) => handleProjectChange(e.target.value)}
               className="w-full px-3 py-2 rounded bg-[#141414] border border-[#2a2a2a] text-xs text-white focus:outline-none focus:border-[#D4AF37]"
             >
               {projects.map((p) => (
@@ -154,34 +185,40 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             <label className="text-xs uppercase tracking-wider text-[#888] font-medium flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>Người Nhận Việc (Assignees) *</span>
+                <span>Người Nhận Việc (Thành viên dự án) *</span>
               </span>
               <span className="text-[#D4AF37] font-mono text-[10px]">
                 Đã chọn: {selectedAssigneeIds.length}
               </span>
             </label>
             <div className="p-2 border border-[#2a2a2a] rounded bg-[#141414] max-h-36 overflow-y-auto space-y-1">
-              {users.map((u) => {
-                const isSelected = selectedAssigneeIds.includes(u.uid);
-                return (
-                  <button
-                    key={u.uid}
-                    type="button"
-                    onClick={() => toggleAssignee(u.uid)}
-                    className={`w-full flex items-center justify-between p-2 rounded text-left transition-colors ${
-                      isSelected
-                        ? 'bg-[#1e1e1e] border border-[#D4AF37]/40 text-white'
-                        : 'hover:bg-[#181818] text-[#999]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <img src={u.photoURL} alt={u.displayName} className="w-5 h-5 rounded-full object-cover" />
-                      <span className="text-xs">{u.displayName}</span>
-                    </div>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-[#D4AF37]" />}
-                  </button>
-                );
-              })}
+              {projectMembers.length === 0 ? (
+                <div className="text-xs text-[#666] py-3 text-center italic">
+                  Dự án này chưa có thành viên nào khác để giao việc
+                </div>
+              ) : (
+                projectMembers.map((u) => {
+                  const isSelected = selectedAssigneeIds.includes(u.uid);
+                  return (
+                    <button
+                      key={u.uid}
+                      type="button"
+                      onClick={() => toggleAssignee(u.uid)}
+                      className={`w-full flex items-center justify-between p-2 rounded text-left transition-colors ${
+                        isSelected
+                          ? 'bg-[#1e1e1e] border border-[#D4AF37]/40 text-white'
+                          : 'hover:bg-[#181818] text-[#999]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <img src={u.photoURL} alt={u.displayName} className="w-5 h-5 rounded-full object-cover" />
+                        <span className="text-xs">{u.displayName}</span>
+                      </div>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-[#D4AF37]" />}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -241,6 +278,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

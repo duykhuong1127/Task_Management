@@ -33,7 +33,7 @@ class DataService {
   private files: TaskFile[] = [];
   private notifications: Notification[] = [];
   private auditLogs: AuditEvent[] = [];
-  private currentUserId: string = 'user_admin';
+  private currentUserId: string | null = null;
   private listeners: Set<() => void> = new Set();
 
   constructor() {
@@ -54,7 +54,18 @@ class DataService {
           this.files = parsed.files || SEED_FILES;
           this.notifications = parsed.notifications || SEED_NOTIFICATIONS;
           this.auditLogs = parsed.auditLogs || SEED_AUDIT_LOGS;
-          this.currentUserId = parsed.currentUserId || 'user_admin';
+
+          // Always require login on initial entry: check active tab session only
+          const activeSessionUid =
+            typeof window !== 'undefined' && window.sessionStorage
+              ? window.sessionStorage.getItem('task_pwa_session_uid')
+              : null;
+
+          if (activeSessionUid && this.users.some((u) => u.uid === activeSessionUid)) {
+            this.currentUserId = activeSessionUid;
+          } else {
+            this.currentUserId = null;
+          }
           return;
         }
       }
@@ -73,7 +84,10 @@ class DataService {
     this.files = JSON.parse(JSON.stringify(SEED_FILES));
     this.notifications = JSON.parse(JSON.stringify(SEED_NOTIFICATIONS));
     this.auditLogs = JSON.parse(JSON.stringify(SEED_AUDIT_LOGS));
-    this.currentUserId = 'user_admin';
+    this.currentUserId = null;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem('task_pwa_session_uid');
+    }
     this.saveState();
     this.notify();
   }
@@ -92,7 +106,7 @@ class DataService {
             files: this.files,
             notifications: this.notifications,
             auditLogs: this.auditLogs,
-            currentUserId: this.currentUserId,
+            currentUserId: null, // Ensure fresh entry always starts at login screen
           })
         );
       }
@@ -143,7 +157,10 @@ class DataService {
   }
 
   public logout(): void {
-    this.currentUserId = null as any;
+    this.currentUserId = null;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem('task_pwa_session_uid');
+    }
     this.saveState();
     this.notify();
   }
@@ -152,6 +169,9 @@ class DataService {
     const user = this.users.find((u) => u.uid === uid);
     if (!user) return false;
     this.currentUserId = uid;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('task_pwa_session_uid', uid);
+    }
     this.saveState();
     this.notify();
     return true;
@@ -164,6 +184,9 @@ class DataService {
       admin = this.users.find((u) => u.uid === 'user_admin') || this.users[0];
     }
     this.currentUserId = admin.uid;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('task_pwa_session_uid', admin.uid);
+    }
     this.saveState();
     this.notify();
     return { success: true, user: admin };
@@ -179,6 +202,9 @@ class DataService {
     }
     if (user.status === 'ACTIVE') {
       this.currentUserId = user.uid;
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('task_pwa_session_uid', user.uid);
+      }
       this.saveState();
       this.notify();
       return { approved: true, user, message: 'Tài khoản đã được Quản trị viên phê duyệt thành công.' };
@@ -205,6 +231,9 @@ class DataService {
       if (displayName && !user.displayName) user.displayName = displayName;
       if (photoURL && !user.photoURL) user.photoURL = photoURL;
       this.currentUserId = user.uid;
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('task_pwa_session_uid', user.uid);
+      }
       this.saveState();
       this.notify();
 
@@ -246,6 +275,9 @@ class DataService {
 
     this.users.push(newUser);
     this.currentUserId = uid;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('task_pwa_session_uid', uid);
+    }
 
     this.addAuditLog('USER_INVITED', 'USER', uid, undefined, {
       email: newUser.email,
@@ -329,7 +361,8 @@ class DataService {
   public approveUserAndGrantProjects(
     userId: string,
     projectIds: string[],
-    role: UserRole = 'MEMBER'
+    role: UserRole = 'MEMBER',
+    newDisplayName?: string
   ): { success: boolean; error?: string } {
     const actor = this.getCurrentUser();
     if (actor.role !== 'ADMIN') {
@@ -341,6 +374,9 @@ class DataService {
     const prevStatus = target.status;
     target.status = 'ACTIVE';
     target.role = role;
+    if (newDisplayName && newDisplayName.trim()) {
+      target.displayName = newDisplayName.trim();
+    }
     target.activatedAt = target.activatedAt || new Date().toISOString();
     target.updatedAt = new Date().toISOString();
 
@@ -492,20 +528,31 @@ class DataService {
     return this.projects.filter((p) => {
       if (p.deleted) return false;
       if (actor.role === 'ADMIN') return true;
-      return p.members && Boolean(p.members[actor.uid]);
+      // If a project has no members, or member is not in project, do not show
+      if (!p.members || Object.keys(p.members).length === 0) return false;
+      return Boolean(p.members[actor.uid]);
     });
   }
 
   public getProjectById(projectId: string): Project | undefined {
-    return this.projects.find((p) => p.projectId === projectId && !p.deleted);
+    const p = this.projects.find((proj) => proj.projectId === projectId && !proj.deleted);
+    if (!p) return undefined;
+    const actor = this.getCurrentUser();
+    if (actor.role === 'ADMIN') return p;
+    // If project has no members or user is not in the project, deny access
+    if (!p.members || Object.keys(p.members).length === 0 || !p.members[actor.uid]) {
+      return undefined;
+    }
+    return p;
   }
 
   public isUserInProject(projectId: string, userId: string): boolean {
-    const p = this.getProjectById(projectId);
+    const p = this.projects.find((proj) => proj.projectId === projectId && !proj.deleted);
     if (!p) return false;
     const user = this.getUserById(userId);
     if (user?.role === 'ADMIN') return true;
-    return Boolean(p.members && p.members[userId]);
+    if (!p.members || Object.keys(p.members).length === 0) return false;
+    return Boolean(p.members[userId]);
   }
 
   public createProject(name: string, description: string, memberIds: string[]): { success: boolean; project?: Project; error?: string } {
@@ -600,16 +647,30 @@ class DataService {
     return this.tasks.filter((t) => {
       if (t.deleted) return false;
       if (actor.role === 'ADMIN') return true;
-      // Member can see task if in project OR is assigner OR is assignee
-      return this.isUserInProject(t.projectId, actor.uid) || t.assignerId === actor.uid || t.assigneeIds.includes(actor.uid);
+      // Member MUST be in the project to see any tasks of that project
+      return this.isUserInProject(t.projectId, actor.uid);
     });
   }
 
   public getTaskById(taskId: string): Task | undefined {
-    return this.tasks.find((t) => t.taskId === taskId && !t.deleted);
+    const task = this.tasks.find((t) => t.taskId === taskId && !t.deleted);
+    if (!task) return undefined;
+    const actor = this.getCurrentUser();
+    if (actor.role === 'ADMIN') return task;
+    // If actor is not in the project, they cannot view or access the task
+    if (!this.isUserInProject(task.projectId, actor.uid)) {
+      return undefined;
+    }
+    return task;
   }
 
   public getAssignmentsForTask(taskId: string): TaskAssignment[] {
+    const task = this.tasks.find((t) => t.taskId === taskId && !t.deleted);
+    if (!task) return [];
+    const actor = this.getCurrentUser();
+    if (actor.role !== 'ADMIN' && !this.isUserInProject(task.projectId, actor.uid)) {
+      return [];
+    }
     return Object.values(this.assignments).filter((a) => a.taskId === taskId);
   }
 
@@ -640,6 +701,16 @@ class DataService {
 
     if (!this.isUserInProject(params.projectId, actor.uid)) {
       return { success: false, error: 'Bạn không thuộc thành viên của dự án này.' };
+    }
+
+    for (const aId of params.assigneeIds) {
+      if (!this.isUserInProject(params.projectId, aId)) {
+        const u = this.getUserById(aId);
+        return {
+          success: false,
+          error: `Người nhận việc (${u?.displayName || aId}) chưa được thêm vào thành viên dự án này.`,
+        };
+      }
     }
 
     const taskId = 'TASK-' + Math.floor(100 + Math.random() * 900);
@@ -843,6 +914,8 @@ class DataService {
 
   // Chat Messages & T+15 Enforcement
   public getMessages(taskId: string): ChatMessage[] {
+    const task = this.getTaskById(taskId);
+    if (!task) return [];
     return this.messages.filter((m) => m.taskId === taskId && !m.deleted);
   }
 
@@ -907,6 +980,8 @@ class DataService {
 
   // Files & Google Drive Integration
   public getFiles(taskId: string): TaskFile[] {
+    const task = this.getTaskById(taskId);
+    if (!task) return [];
     return this.files.filter((f) => f.taskId === taskId && !f.deleted);
   }
 

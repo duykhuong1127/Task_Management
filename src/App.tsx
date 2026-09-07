@@ -98,6 +98,16 @@ export default function App() {
     };
   }, [selectedTask]);
 
+  // Security: Ensure selectedProjectId is always a project the user has permission to access
+  useEffect(() => {
+    if (selectedProjectId) {
+      const hasAccess = dataService.isUserInProject(selectedProjectId, currentUser.uid);
+      if (!hasAccess) {
+        setSelectedProjectId(undefined);
+      }
+    }
+  }, [currentUser.uid, selectedProjectId, projects]);
+
   const handleInstallPWA = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();

@@ -1,7 +1,6 @@
 import React from 'react';
-import { Home, CheckSquare, Plus, Bell, Shield, FolderKanban, Server, Globe2 } from 'lucide-react';
+import { Home, CheckSquare, Plus, Bell, Shield, FolderKanban } from 'lucide-react';
 import { Project, User } from '@shared/types/models';
-import { APP_REGION, BUSINESS_TIMEZONE } from '@shared/constants/regions';
 
 interface NavigationProps {
   currentTab: 'home' | 'tasks' | 'projects' | 'admin';
@@ -142,7 +141,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         </div>
 
         {/* Create Task Quick Action Button */}
-        <div className="mt-auto mb-6">
+        <div className="mt-auto">
           <button
             id="btn-sidebar-create-task"
             onClick={onOpenCreateTask}
@@ -151,21 +150,6 @@ export const Navigation: React.FC<NavigationProps> = ({
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Tạo Công Việc</span>
           </button>
-        </div>
-
-        {/* System & Geography Card (Lock Status) */}
-        <div className="p-3 border border-[#222] rounded bg-[#0D0D0D] text-[10px] space-y-2">
-          <div className="flex items-center justify-between text-[#777] uppercase tracking-wider">
-            <span className="flex items-center gap-1">
-              <Globe2 className="w-3 h-3 text-[#D4AF37]" /> Vùng Triển Khai
-            </span>
-            <span className="text-[#10b981] font-mono">LOCKED</span>
-          </div>
-          <div className="text-white font-mono text-xs font-semibold">{APP_REGION}</div>
-          <div className="text-[#555] text-[9px] flex justify-between border-t border-[#1a1a1a] pt-1">
-            <span>Múi giờ:</span>
-            <span className="text-[#999] font-mono">{BUSINESS_TIMEZONE}</span>
-          </div>
         </div>
       </aside>
 

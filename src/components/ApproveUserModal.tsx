@@ -22,6 +22,7 @@ export const ApproveUserModal: React.FC<ApproveUserModalProps> = ({
   const projects: Project[] = adminProjects.length > 0 ? adminProjects : allProjects;
 
   const [selectedRole, setSelectedRole] = useState<UserRole>('MEMBER');
+  const [userName, setUserName] = useState<string>(user.displayName || user.email.split('@')[0]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(
     projects.map((p) => p.projectId) // Default to all active projects for convenience
   );
@@ -54,7 +55,8 @@ export const ApproveUserModal: React.FC<ApproveUserModalProps> = ({
     const res = dataService.approveUserAndGrantProjects(
       user.uid,
       selectedProjectIds,
-      selectedRole
+      selectedRole,
+      userName.trim()
     );
 
     setLoading(false);
@@ -113,10 +115,25 @@ export const ApproveUserModal: React.FC<ApproveUserModalProps> = ({
         )}
 
         <form onSubmit={handleApprove} className="space-y-4">
+          {/* Member Name Input (Admin sets name) */}
+          <div className="space-y-1.5">
+            <label className="text-xs uppercase tracking-wider text-[#888] font-medium">
+              1. Họ và Tên Thành Viên (Admin Đặt Tên) *
+            </label>
+            <input
+              type="text"
+              required
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              placeholder="Nhập họ và tên thành viên..."
+              className="w-full px-3 py-2 text-xs bg-[#161616] border border-[#333] rounded text-white focus:border-[#D4AF37] focus:outline-none"
+            />
+          </div>
+
           {/* Role Selection */}
           <div className="space-y-1.5">
             <label className="text-xs uppercase tracking-wider text-[#888] font-medium">
-              1. Phân Quyền Vai Trò Hệ Thống *
+              2. Phân Quyền Vai Trò Hệ Thống *
             </label>
             <div className="grid grid-cols-2 gap-2">
               <label

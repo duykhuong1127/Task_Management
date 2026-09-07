@@ -133,4 +133,51 @@ describe('Business Logic & Security Authorization Scenarios', () => {
     expect(uploadRes.file?.driveOwnerEmail).toBe('a@gmail.com');
     expect(uploadRes.file?.drivePath).toContain('Google Drive (a@gmail.com)');
   });
+
+  it('hides project and denies access to users not in the project, and hides projects with 0 members', () => {
+    // In seed data:
+    // proj_alpha has members: user_admin, user_a, user_b, user_c, user_d
+    // proj_beta has members: user_admin, user_a, user_b. (user_c and user_d are NOT members)
+
+    // 1. user_c logs in
+    dataService.setCurrentUser('user_c');
+    const projectsUserC = dataService.getProjects();
+    // user_c should only see proj_alpha, NOT proj_beta
+    expect(projectsUserC.some((p) => p.projectId === 'proj_alpha')).toBe(true);
+    expect(projectsUserC.some((p) => p.projectId === 'proj_beta')).toBe(false);
+
+    // Direct access via getProjectById should return undefined for proj_beta
+    expect(dataService.getProjectById('proj_beta')).toBeUndefined();
+    expect(dataService.isUserInProject('proj_beta', 'user_c')).toBe(false);
+
+    // Tasks of proj_beta should NOT be visible to user_c
+    const tasksUserC = dataService.getTasks();
+    expect(tasksUserC.some((t) => t.projectId === 'proj_beta')).toBe(false);
+
+    // 2. Admin creates a project with NO members
+    dataService.setCurrentUser('user_admin');
+    const emptyProjRes = dataService.createProject('Dự án rỗng không thành viên', 'Không có ai', []);
+    expect(emptyProjRes.success).toBe(true);
+    const emptyProjId = emptyProjRes.project!.projectId;
+    // Remove the creator/owner to simulate project with no members
+    emptyProjRes.project!.members = {};
+
+    // 3. Member user_a checks projects
+    dataService.setCurrentUser('user_a');
+    const projectsUserA = dataService.getProjects();
+    expect(projectsUserA.some((p) => p.projectId === emptyProjId)).toBe(false);
+    expect(dataService.getProjectById(emptyProjId)).toBeUndefined();
+    expect(dataService.isUserInProject(emptyProjId, 'user_a')).toBe(false);
+
+    // 4. If admin removes user_a from proj_beta, user_a immediately loses access to proj_beta
+    dataService.setCurrentUser('user_admin');
+    const removeRes = dataService.removeMemberFromProject('proj_beta', 'user_a');
+    expect(removeRes.success).toBe(true);
+
+    dataService.setCurrentUser('user_a');
+    const updatedProjectsUserA = dataService.getProjects();
+    expect(updatedProjectsUserA.some((p) => p.projectId === 'proj_beta')).toBe(false);
+    expect(dataService.getProjectById('proj_beta')).toBeUndefined();
+    expect(dataService.isUserInProject('proj_beta', 'user_a')).toBe(false);
+  });
 });

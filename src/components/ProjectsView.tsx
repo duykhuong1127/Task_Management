@@ -80,6 +80,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       </div>
 
       {/* Projects Grid */}
+      {projects.length === 0 ? (
+        <div className="p-8 rounded-lg border border-[#222] bg-[#0C0C0C] text-center space-y-3">
+          <FolderKanban className="w-10 h-10 text-[#555] mx-auto stroke-[1.5]" />
+          <h3 className="text-base font-serif text-white font-medium">Chưa Có Dự Án Khả Dụng</h3>
+          <p className="text-xs text-[#777] max-w-md mx-auto leading-relaxed">
+            Bạn chưa thuộc bất kỳ dự án nào hoặc dự án chưa có thành viên. Bạn chỉ có thể xem và truy cập các dự án mà bạn là thành viên chính thức.
+          </p>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {projects.map((proj) => {
           const projectTasks = tasks.filter((t) => t.projectId === proj.projectId);
@@ -164,6 +173,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           );
         })}
       </div>
+      )}
 
       {/* Create Project Modal */}
       {showCreateModal && (
