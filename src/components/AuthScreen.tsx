@@ -11,7 +11,8 @@ interface AuthScreenProps {
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
-  const [emailInput, setEmailInput] = useState('duykhuong332@gmail.com');
+  const [emailInput, setEmailInput] = useState('');
+  const emailInputRef = React.useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pendingNotice, setPendingNotice] = useState<{
@@ -35,13 +36,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
           return;
         }
       }
-      // Fallback: seamless direct login with active Google email
-      const targetEmail = emailInput.trim() || 'duykhuong332@gmail.com';
-      processGmailLogin(targetEmail);
+
+      // Use the email entered by this specific user
+      const trimmed = emailInput.trim();
+      if (trimmed) {
+        processGmailLogin(trimmed);
+        return;
+      }
+
+      // Prompt user to enter their personal Gmail
+      setError('Vui lòng nhập địa chỉ Gmail riêng của bạn vào ô bên dưới để đăng nhập.');
+      if (emailInputRef.current) {
+        emailInputRef.current.focus();
+      }
     } catch (err: any) {
-      console.warn('Google popup sandbox fallback, signing in directly:', err);
-      const targetEmail = emailInput.trim() || 'duykhuong332@gmail.com';
-      processGmailLogin(targetEmail);
+      console.warn('Google sign-in popup notice:', err);
+      const trimmed = emailInput.trim();
+      if (trimmed) {
+        processGmailLogin(trimmed);
+      } else {
+        setError('Vui lòng nhập địa chỉ Gmail riêng của bạn vào ô bên dưới.');
+        if (emailInputRef.current) {
+          emailInputRef.current.focus();
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -144,6 +162,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
                 onClick={() => {
                   setPendingNotice(null);
                   setStatusMessage(null);
+                  setEmailInput('');
+                  setError(null);
                 }}
                 className="w-full py-2 px-4 rounded bg-[#161616] hover:bg-[#202020] border border-[#333] text-[#AAA] hover:text-white text-xs transition-all flex items-center justify-center gap-1.5"
               >
@@ -215,11 +235,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
                   Địa chỉ Gmail
                 </label>
                 <input
+                  ref={emailInputRef}
                   type="email"
                   required
-                  placeholder="name@gmail.com"
+                  placeholder="ví dụ: yourname@gmail.com"
                   value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
+                  onChange={(e) => {
+                    setEmailInput(e.target.value);
+                    if (error) setError(null);
+                  }}
                   className="w-full px-3 py-2 text-xs bg-[#161616] border border-[#2E2E2E] rounded text-white focus:border-[#D4AF37] focus:outline-none transition-colors"
                 />
               </div>

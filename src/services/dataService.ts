@@ -55,6 +55,28 @@ class DataService {
           this.notifications = parsed.notifications || SEED_NOTIFICATIONS;
           this.auditLogs = parsed.auditLogs || SEED_AUDIT_LOGS;
 
+          // Always ensure designated admin users (like duykhuong332@gmail.com and admin@company.com) are ACTIVE ADMINs
+          for (const seedU of SEED_USERS) {
+            const existing = this.users.find((u) => u.normalizedEmail === seedU.normalizedEmail);
+            if (!existing) {
+              this.users.unshift(JSON.parse(JSON.stringify(seedU)));
+            } else if (seedU.role === 'ADMIN') {
+              existing.role = 'ADMIN';
+              existing.status = 'ACTIVE';
+            }
+          }
+          // Ensure admin user_duykhuong is member of projects
+          for (const proj of this.projects) {
+            if (!proj.members['user_duykhuong']) {
+              proj.members['user_duykhuong'] = {
+                userId: 'user_duykhuong',
+                projectRole: 'OWNER',
+                joinedAt: '2026-09-01T08:00:00.000Z',
+                addedBy: 'user_admin',
+              };
+            }
+          }
+
           // Always require login on initial entry: check active tab session only
           const activeSessionUid =
             typeof window !== 'undefined' && window.sessionStorage
@@ -200,6 +222,11 @@ class DataService {
     if (!user) {
       return { approved: false, message: 'Không tìm thấy tài khoản người dùng.' };
     }
+    // Auto-activate designated admins
+    if (user.normalizedEmail === 'duykhuong332@gmail.com' || user.normalizedEmail === 'admin@company.com') {
+      user.role = 'ADMIN';
+      user.status = 'ACTIVE';
+    }
     if (user.status === 'ACTIVE') {
       this.currentUserId = user.uid;
       if (typeof window !== 'undefined' && window.sessionStorage) {
@@ -223,9 +250,14 @@ class DataService {
     photoURL?: string
   ): { success: boolean; user: User; isNewUser: boolean; needsApproval: boolean; message: string } {
     const normalized = email.trim().toLowerCase();
+    const isAdminEmail = normalized === 'duykhuong332@gmail.com' || normalized === 'admin@company.com';
     let user = this.users.find((u) => u.normalizedEmail === normalized);
 
     if (user) {
+      if (isAdminEmail) {
+        user.role = 'ADMIN';
+        user.status = 'ACTIVE';
+      }
       user.lastLoginAt = new Date().toISOString();
       user.updatedAt = new Date().toISOString();
       if (displayName && !user.displayName) user.displayName = displayName;
@@ -256,18 +288,18 @@ class DataService {
       };
     }
 
-    // Register new user with PENDING_APPROVAL status
+    // Register new user with PENDING_APPROVAL status (or ACTIVE if designated admin)
     const uid = 'user_' + Math.random().toString(36).substring(2, 9);
     const newUser: User = {
       uid,
       email: email.trim(),
       normalizedEmail: normalized,
-      displayName: displayName?.trim() || normalized.split('@')[0],
+      displayName: displayName?.trim() || (isAdminEmail ? 'Duy Khương (Admin)' : normalized.split('@')[0]),
       photoURL:
         photoURL ||
         `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
-      role: 'MEMBER',
-      status: 'PENDING_APPROVAL',
+      role: isAdminEmail ? 'ADMIN' : 'MEMBER',
+      status: isAdminEmail ? 'ACTIVE' : 'PENDING_APPROVAL',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
@@ -309,12 +341,22 @@ class DataService {
     this.saveState();
     this.notify();
 
+    if (newUser.status !== 'ACTIVE') {
+      return {
+        success: true,
+        user: newUser,
+        isNewUser: true,
+        needsApproval: true,
+        message: 'Vui lòng chờ admin xét duyệt tài khoản',
+      };
+    }
+
     return {
       success: true,
       user: newUser,
       isNewUser: true,
-      needsApproval: true,
-      message: 'Vui lòng chờ admin xét duyệt tài khoản',
+      needsApproval: false,
+      message: 'Đăng nhập thành công',
     };
   }
 

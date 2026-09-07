@@ -12,7 +12,8 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [emailInput, setEmailInput] = useState('duykhuong332@gmail.com');
+  const [emailInput, setEmailInput] = useState('');
+  const emailInputRef = React.useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,13 +37,30 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
           return;
         }
       }
-      // Fallback: seamless direct login with active Google email
-      const targetEmail = emailInput.trim() || 'duykhuong332@gmail.com';
-      handleDirectLogin(targetEmail);
+
+      // Use the email entered by this specific user
+      const trimmed = emailInput.trim();
+      if (trimmed) {
+        handleDirectLogin(trimmed);
+        return;
+      }
+
+      // Prompt user to enter their personal Gmail
+      setError('Vui lòng nhập địa chỉ Gmail riêng của bạn vào ô bên dưới.');
+      if (emailInputRef.current) {
+        emailInputRef.current.focus();
+      }
     } catch (err: any) {
-      console.warn('Google Popup SignIn sandbox fallback:', err);
-      const targetEmail = emailInput.trim() || 'duykhuong332@gmail.com';
-      handleDirectLogin(targetEmail);
+      console.warn('Google Popup SignIn notice:', err);
+      const trimmed = emailInput.trim();
+      if (trimmed) {
+        handleDirectLogin(trimmed);
+      } else {
+        setError('Vui lòng nhập địa chỉ Gmail riêng của bạn vào ô bên dưới.');
+        if (emailInputRef.current) {
+          emailInputRef.current.focus();
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -151,11 +169,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
             <div>
               <label className="block text-[11px] text-[#888] mb-1">Địa chỉ Gmail</label>
               <input
+                ref={emailInputRef}
                 type="email"
                 required
                 value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                placeholder="name@gmail.com"
+                onChange={(e) => {
+                  setEmailInput(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="ví dụ: yourname@gmail.com"
                 className="w-full px-3 py-2 text-xs bg-[#161616] border border-[#2E2E2E] rounded text-white focus:border-[#D4AF37] focus:outline-none transition-colors"
               />
             </div>
