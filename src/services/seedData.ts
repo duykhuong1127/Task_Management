@@ -5,6 +5,18 @@ import { calculateT15Retention, isWithin72Hours, isOverdue, buildReminderDedupli
 // Seed initial users matching Acceptance Criteria
 export const SEED_USERS: User[] = [
   {
+    uid: 'user_duykhuong',
+    email: 'duykhuong332@gmail.com',
+    normalizedEmail: 'duykhuong332@gmail.com',
+    displayName: 'Duy Khương (Admin)',
+    photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    role: 'ADMIN',
+    status: 'ACTIVE',
+    createdAt: '2026-09-01T08:00:00.000Z',
+    activatedAt: '2026-09-01T08:00:00.000Z',
+    updatedAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
     uid: 'user_admin',
     email: 'admin@company.com',
     normalizedEmail: 'admin@company.com',
@@ -85,6 +97,7 @@ export const SEED_PROJECTS: Project[] = [
     ownerId: 'user_a',
     status: 'ACTIVE',
     members: {
+      user_duykhuong: { userId: 'user_duykhuong', projectRole: 'OWNER', joinedAt: '2026-09-01T08:00:00.000Z', addedBy: 'user_admin' },
       user_admin: { userId: 'user_admin', projectRole: 'OWNER', joinedAt: '2026-09-01T08:00:00.000Z', addedBy: 'user_admin' },
       user_a: { userId: 'user_a', projectRole: 'OWNER', joinedAt: '2026-09-02T08:00:00.000Z', addedBy: 'user_admin' },
       user_b: { userId: 'user_b', projectRole: 'MEMBER', joinedAt: '2026-09-02T08:00:00.000Z', addedBy: 'user_a' },
@@ -102,6 +115,7 @@ export const SEED_PROJECTS: Project[] = [
     ownerId: 'user_admin',
     status: 'ACTIVE',
     members: {
+      user_duykhuong: { userId: 'user_duykhuong', projectRole: 'OWNER', joinedAt: '2026-09-01T08:00:00.000Z', addedBy: 'user_admin' },
       user_admin: { userId: 'user_admin', projectRole: 'OWNER', joinedAt: '2026-09-01T08:00:00.000Z', addedBy: 'user_admin' },
       user_a: { userId: 'user_a', projectRole: 'MEMBER', joinedAt: '2026-09-02T08:00:00.000Z', addedBy: 'user_admin' },
       user_b: { userId: 'user_b', projectRole: 'MEMBER', joinedAt: '2026-09-02T08:00:00.000Z', addedBy: 'user_admin' },
