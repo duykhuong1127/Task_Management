@@ -45,7 +45,7 @@ export interface Project {
 export type TaskPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 export type TaskStatus = 'NEW' | 'IN_PROGRESS' | 'WAITING' | 'COMPLETED' | 'OVERDUE' | 'ARCHIVED';
 
-export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'COMPLETED';
+export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'SUBMITTED' | 'NEEDS_REVISION' | 'COMPLETED';
 
 export interface TaskAssignment {
   taskId: string;
@@ -54,6 +54,10 @@ export interface TaskAssignment {
   progress: number; // 0–100
   assignedAt: string;
   startedAt?: string;
+  submittedAt?: string;
+  submissionNote?: string;
+  revisionRequestedAt?: string;
+  revisionNote?: string;
   completedAt?: string;
   updatedAt: string;
 }
@@ -122,7 +126,11 @@ export type NotificationType =
   | 'NEW_FILE'
   | 'PROJECT_UPDATED'
   | 'USER_REGISTERED'
-  | 'ACCOUNT_STATUS';
+  | 'ACCOUNT_STATUS'
+  | 'ASSIGNMENT_SUBMITTED'
+  | 'REVISION_REQUESTED'
+  | 'REVISION_SUBMITTED'
+  | 'ASSIGNMENT_APPROVED';
 
 export interface Notification {
   notificationId: string;
@@ -162,7 +170,12 @@ export type AuditAction =
   | 'FILE_UPLOADED'
   | 'FILE_REMOVED'
   | 'DRIVE_CONNECTED'
-  | 'DRIVE_DISCONNECTED';
+  | 'DRIVE_DISCONNECTED'
+  | 'ASSIGNMENT_SUBMITTED'
+  | 'REVISION_REQUESTED'
+  | 'REVISION_SUBMITTED'
+  | 'ASSIGNMENT_APPROVED'
+  | 'ASSIGNMENT_REOPENED';
 
 export interface AuditEvent {
   eventId: string;

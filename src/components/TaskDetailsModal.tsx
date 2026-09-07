@@ -19,9 +19,9 @@ import {
   AtSign,
   MessageSquare,
   Paperclip,
-  Activity,
   HardDrive,
   Info,
+  Check,
 } from 'lucide-react';
 
 interface TaskDetailsModalProps {
@@ -35,7 +35,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
   currentUser,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'details' | 'files' | 'chat' | 'activity'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'files' | 'chat'>('details');
   const [chatInput, setChatInput] = useState('');
   const [mentionTarget, setMentionTarget] = useState<string | null>(null);
   const [uploadFileName, setUploadFileName] = useState('');
@@ -44,10 +44,22 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Handover & Revision Modal States
+  const [handoverTarget, setHandoverTarget] = useState<{ uid: string; name: string } | null>(null);
+  const [handoverNote, setHandoverNote] = useState('');
+  const [isSubmittingHandover, setIsSubmittingHandover] = useState(false);
+
+  const [revisionTarget, setRevisionTarget] = useState<{ uid: string; name: string } | null>(null);
+  const [revisionNoteInput, setRevisionNoteInput] = useState('');
+  const [isSubmittingRevision, setIsSubmittingRevision] = useState(false);
+
+  const [revisedTarget, setRevisedTarget] = useState<{ uid: string; name: string } | null>(null);
+  const [revisedNoteInput, setRevisedNoteInput] = useState('');
+  const [isSubmittingRevised, setIsSubmittingRevised] = useState(false);
+
   const assignments = dataService.getAssignmentsForTask(task.taskId);
   const messages = dataService.getMessages(task.taskId);
   const files = dataService.getFiles(task.taskId);
-  const auditLogs = dataService.getAuditLogs().filter((l) => l.taskId === task.taskId);
   const project = dataService.getProjectById(task.projectId);
   const assigner = dataService.getUserById(task.assignerId);
 
@@ -58,11 +70,80 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
   // T+15 check: is chat writable or locked?
   const chatWritable = isChatWritable(task.chatWritableUntil);
 
-  // Handle progress slider update
-  const handleProgressChange = (userId: string, newProgress: number) => {
-    const res = dataService.updateAssignmentProgress(task.taskId, userId, newProgress);
+  // Assigner / Admin permission
+  const isAssigner = currentUser.uid === task.assignerId;
+  const isAdmin = currentUser.role === 'ADMIN';
+  const canReview = isAssigner || isAdmin;
+
+  // Handover confirmation handler
+  const handleConfirmHandover = () => {
+    if (!handoverTarget) return;
+    setIsSubmittingHandover(true);
+    const res = dataService.handoverAssignment(task.taskId, handoverTarget.uid, handoverNote);
+    setIsSubmittingHandover(false);
     if (!res.success) {
-      alert(res.error);
+      alert(res.error || 'Có lỗi xảy ra khi bàn giao công việc.');
+      return;
+    }
+    setHandoverTarget(null);
+    setHandoverNote('');
+  };
+
+  // Request revision handler
+  const handleConfirmRevision = () => {
+    if (!revisionTarget) return;
+    if (!revisionNoteInput.trim()) {
+      alert('Vui lòng nhập nội dung yêu cầu chỉnh sửa.');
+      return;
+    }
+    setIsSubmittingRevision(true);
+    const res = dataService.requestRevision(task.taskId, revisionTarget.uid, revisionNoteInput);
+    setIsSubmittingRevision(false);
+    if (!res.success) {
+      alert(res.error || 'Có lỗi xảy ra khi yêu cầu chỉnh sửa.');
+      return;
+    }
+    setRevisionTarget(null);
+    setRevisionNoteInput('');
+  };
+
+  // Submit revised work handler
+  const handleConfirmRevised = () => {
+    if (!revisedTarget) return;
+    setIsSubmittingRevised(true);
+    const res = dataService.submitRevision(task.taskId, revisedTarget.uid, revisedNoteInput);
+    setIsSubmittingRevised(false);
+    if (!res.success) {
+      alert(res.error || 'Có lỗi xảy ra khi xác nhận đã chỉnh sửa.');
+      return;
+    }
+    setRevisedTarget(null);
+    setRevisedNoteInput('');
+  };
+
+  // Assigner approves completion handler
+  const handleApproveCompletion = (uid: string) => {
+    const user = dataService.getUserById(uid);
+    const confirmed = window.confirm(
+      `Xác nhận nghiệm thu & đánh dấu HOÀN THÀNH cho thành viên "${user?.displayName || uid}"?`
+    );
+    if (!confirmed) return;
+    const res = dataService.approveAssignmentCompletion(task.taskId, uid);
+    if (!res.success) {
+      alert(res.error || 'Có lỗi xảy ra khi xác nhận hoàn thành.');
+    }
+  };
+
+  // Assigner reopens an assignment handler
+  const handleReopenAssignment = (uid: string) => {
+    const user = dataService.getUserById(uid);
+    const confirmed = window.confirm(
+      `Bạn muốn mở lại phần việc của "${user?.displayName || uid}" để tiếp tục thực hiện?`
+    );
+    if (!confirmed) return;
+    const res = dataService.reopenAssignment(task.taskId, uid);
+    if (!res.success) {
+      alert(res.error || 'Có lỗi xảy ra khi mở lại phần việc.');
     }
   };
 
@@ -237,7 +318,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs (Section 43: Chi tiết, Tệp, Trao đổi, Hoạt động) */}
+        {/* Navigation Tabs (Chi tiết, Tệp, Trao đổi - Bỏ mục Hoạt Động theo yêu cầu) */}
         <div className="flex items-center border-b border-[#222] bg-[#0A0A0A] px-6 text-xs">
           <button
             id="tab-task-details"
@@ -249,7 +330,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             }`}
           >
             <Info className="w-3.5 h-3.5" />
-            <span>Chi Tiết & Tiến Độ</span>
+            <span>Chi Tiết & Bàn Giao</span>
           </button>
 
           <button
@@ -277,19 +358,6 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Trao Đổi ({messages.length})</span>
           </button>
-
-          <button
-            id="tab-task-activity"
-            onClick={() => setActiveTab('activity')}
-            className={`py-3 px-4 font-medium tracking-wider uppercase border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'activity'
-                ? 'border-[#D4AF37] text-[#D4AF37]'
-                : 'border-transparent text-[#777] hover:text-white'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>Hoạt Động ({auditLogs.length})</span>
-          </button>
         </div>
 
         {/* Tab Content Body */}
@@ -307,96 +375,234 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
                 </div>
               </div>
 
-              {/* SECTION 44: INDIVIDUAL ASSIGNEE PROGRESS UI */}
+              {/* SECTION: MULTI-ASSIGNEE HANDOVER & APPROVAL WORKFLOW */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold">
-                    Tiến Độ Từng Cá Nhân (Multi-Assignee Completion Rule)
-                  </div>
-                  <div className="text-[10px] text-[#777]">
-                    Công việc hoàn thành khi <strong className="text-[#D4AF37]">TẤT CẢ</strong> thành viên đạt 100%
-                  </div>
-                </div>
+                {(() => {
+                  const totalAssignees = task.assigneeIds.length;
+                  const completedAssigneesCount = assignments.filter((a) => a.status === 'COMPLETED').length;
+                  const pctPerPerson = totalAssignees > 0 ? (100 / totalAssignees).toFixed(totalAssignees % 1 === 0 && 100 % totalAssignees === 0 ? 0 : 1) : '0';
 
-                <div className="space-y-3">
-                  {task.assigneeIds.map((uid) => {
-                    const user = dataService.getUserById(uid);
-                    const assignment = assignments.find((a) => a.userId === uid) || {
-                      taskId: task.taskId,
-                      userId: uid,
-                      status: 'NOT_STARTED',
-                      progress: 0,
-                      assignedAt: task.createdAt,
-                      updatedAt: task.createdAt,
-                    };
-
-                    const canEdit = currentUser.uid === uid || currentUser.role === 'ADMIN' || currentUser.uid === task.assignerId;
-                    const isAssigneeDone = assignment.status === 'COMPLETED';
-
-                    return (
-                      <div
-                        key={uid}
-                        className="p-3.5 rounded border border-[#222] bg-[#0E0E0E] flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:border-[#333]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={user?.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
-                            alt={user?.displayName}
-                            className="w-8 h-8 rounded-full object-cover border border-[#D4AF37]/30"
-                          />
-                          <div>
-                            <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                              <span>{user?.displayName || uid}</span>
-                              {currentUser.uid === uid && (
-                                <span className="text-[9px] px-1 rounded bg-[#D4AF37]/20 text-[#D4AF37]">
-                                  (Bạn)
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-[#666]">
-                              Trạng thái: <span className={isAssigneeDone ? 'text-emerald-400 font-medium' : 'text-[#888]'}>
-                                {isAssigneeDone ? 'Hoàn thành' : assignment.progress > 0 ? 'Đang thực hiện' : 'Chưa bắt đầu'}
-                              </span>
-                            </div>
-                          </div>
+                  return (
+                    <>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1">
+                        <div>
+                          <h3 className="text-xs uppercase tracking-wider text-[#D4AF37] font-bold flex items-center gap-1.5">
+                            <span>Tiến Độ Từng Người Nhận Việc</span>
+                          </h3>
+                          <p className="text-[11px] text-[#777] mt-0.5">
+                            Chia đều <strong className="text-white">{pctPerPerson}%/người</strong>. Đã nghiệm thu hoàn thành: <strong className="text-white">{completedAssigneesCount}/{totalAssignees} người ({task.progressSummary}%)</strong>.
+                          </p>
                         </div>
-
-                        {/* Interactive Progress Control */}
-                        <div className="flex items-center gap-4 flex-1 md:max-w-xs">
-                          <div className="flex-1 space-y-1">
-                            <div className="flex justify-between text-[10px]">
-                              <span className="text-[#555]">Mức độ hoàn thành</span>
-                              <span className="font-mono text-white font-bold">{assignment.progress}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              step="5"
-                              value={assignment.progress}
-                              disabled={!canEdit}
-                              onChange={(e) => handleProgressChange(uid, Number(e.target.value))}
-                              className="w-full accent-[#D4AF37] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            />
-                          </div>
-
-                          {canEdit && (
-                            <button
-                              onClick={() => handleProgressChange(uid, isAssigneeDone ? 0 : 100)}
-                              className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold shrink-0 transition-all ${
-                                isAssigneeDone
-                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40 hover:bg-emerald-900/60'
-                                  : 'bg-[#1a1a1a] text-[#aaa] border border-[#333] hover:text-white hover:border-[#D4AF37]'
-                              }`}
-                            >
-                              {isAssigneeDone ? 'Hoàn thành' : 'Đánh dấu 100%'}
-                            </button>
-                          )}
+                        <div className="text-[10px] text-[#888] bg-[#161616] px-2.5 py-1 rounded border border-[#262626]">
+                          Chỉ tính hoàn thành khi người giao việc xác nhận hoàn thành
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+
+                      <div className="space-y-3">
+                        {task.assigneeIds.map((uid) => {
+                          const user = dataService.getUserById(uid);
+                          const assignment: TaskAssignment = assignments.find((a) => a.userId === uid) || {
+                            taskId: task.taskId,
+                            userId: uid,
+                            status: 'NOT_STARTED',
+                            progress: 0,
+                            assignedAt: task.createdAt,
+                            updatedAt: task.createdAt,
+                          };
+
+                          const isMe = currentUser.uid === uid;
+                          const canHandover = isMe || isAdmin;
+                          const status = assignment.status || 'NOT_STARTED';
+
+                          return (
+                            <div
+                              key={uid}
+                              className="p-4 rounded border border-[#222] bg-[#0E0E0E] hover:border-[#333] transition-all space-y-3 shadow-md"
+                            >
+                              {/* Top: User info + Status Badge */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={user?.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                                    alt={user?.displayName}
+                                    className="w-9 h-9 rounded-full object-cover border border-[#D4AF37]/30"
+                                  />
+                                  <div>
+                                    <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                                      <span>{user?.displayName || uid}</span>
+                                      {isMe && (
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#D4AF37]/20 text-[#D4AF37] font-bold">
+                                          (Bạn)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-[#666]">
+                                      Tỷ lệ đóng góp: <span className="text-[#D4AF37] font-mono">{pctPerPerson}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Status Badge */}
+                                <div className="flex items-center gap-2">
+                                  {status === 'COMPLETED' && (
+                                    <span className="px-2.5 py-1 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-700/50 text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span>Đã Hoàn Thành (100%)</span>
+                                    </span>
+                                  )}
+                                  {status === 'SUBMITTED' && (
+                                    <span className="px-2.5 py-1 rounded bg-sky-950/70 text-sky-300 border border-sky-700/50 text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                      <Clock className="w-3.5 h-3.5 text-sky-400" />
+                                      <span>Đã Bàn Giao (Chờ kiểm tra)</span>
+                                    </span>
+                                  )}
+                                  {status === 'NEEDS_REVISION' && (
+                                    <span className="px-2.5 py-1 rounded bg-rose-950/70 text-rose-300 border border-rose-700/50 text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                      <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                                      <span>Chờ Chỉnh Sửa</span>
+                                    </span>
+                                  )}
+                                  {status === 'IN_PROGRESS' && (
+                                    <span className="px-2 py-0.5 rounded bg-[#181818] text-amber-300/90 border border-amber-800/40 text-[10px] uppercase font-medium">
+                                      Đang Thực Hiện
+                                    </span>
+                                  )}
+                                  {status === 'NOT_STARTED' && (
+                                    <span className="px-2 py-0.5 rounded bg-[#181818] text-[#888] border border-[#2a2a2a] text-[10px] uppercase font-medium">
+                                      Chưa Bắt Đầu
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Middle: Notes if any */}
+                              {assignment.submissionNote && (
+                                <div className="p-2.5 rounded bg-[#141414] border border-[#262626] text-xs text-[#ccc] flex items-start gap-2">
+                                  <span className="text-[10px] uppercase text-[#D4AF37] font-semibold shrink-0 mt-0.5">Ghi chú bàn giao:</span>
+                                  <span className="italic">{assignment.submissionNote}</span>
+                                </div>
+                              )}
+
+                              {assignment.revisionNote && status === 'NEEDS_REVISION' && (
+                                <div className="p-2.5 rounded bg-rose-950/30 border border-rose-900/50 text-xs text-rose-300/90 flex items-start gap-2">
+                                  <span className="text-[10px] uppercase text-rose-400 font-bold shrink-0 mt-0.5">Yêu cầu chỉnh sửa:</span>
+                                  <span>{assignment.revisionNote}</span>
+                                </div>
+                              )}
+
+                              {/* Bottom: Action Controls */}
+                              <div className="pt-2 border-t border-[#1a1a1a] flex flex-wrap items-center justify-between gap-3">
+                                {/* Left helper text */}
+                                <div className="text-[11px] text-[#666]">
+                                  {status === 'COMPLETED' ? (
+                                    <span className="text-emerald-400/90 flex items-center gap-1">
+                                      <Check className="w-3 h-3" /> Người giao việc đã nghiệm thu hoàn thành
+                                    </span>
+                                  ) : status === 'SUBMITTED' ? (
+                                    <span className="text-sky-400/90 italic">
+                                      {canReview ? 'Vui lòng kiểm tra sản phẩm bàn giao và nghiệm thu hoặc yêu cầu sửa đổi.' : 'Đã bàn giao. Đang chờ người giao việc kiểm tra và nghiệm thu.'}
+                                    </span>
+                                  ) : status === 'NEEDS_REVISION' ? (
+                                    <span className="text-rose-400/90 italic">
+                                      {isMe ? 'Vui lòng chỉnh sửa theo yêu cầu rồi bấm "Xác nhận đã chỉnh sửa".' : 'Thành viên đang thực hiện chỉnh sửa theo yêu cầu.'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[#666] italic">
+                                      Sau khi làm xong phần việc, bấm nút "Đã bàn giao" để gửi cho người giao việc.
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Right action buttons */}
+                                <div className="flex items-center gap-2">
+                                  {/* Handover Button for Assignee */}
+                                  {(status === 'NOT_STARTED' || status === 'IN_PROGRESS') && (
+                                    canHandover ? (
+                                      <button
+                                        id={`btn-handover-${uid}`}
+                                        onClick={() => {
+                                          setHandoverTarget({ uid, name: user?.displayName || uid });
+                                          setHandoverNote('');
+                                        }}
+                                        className="px-3.5 py-1.5 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+                                      >
+                                        <Send className="w-3 h-3 stroke-[2.5]" />
+                                        <span>Đã Bàn Giao</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-[#555] italic">Chưa bàn giao</span>
+                                    )
+                                  )}
+
+                                  {/* Review Buttons for Assigner/Admin when SUBMITTED */}
+                                  {status === 'SUBMITTED' && (
+                                    canReview ? (
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          id={`btn-request-revision-${uid}`}
+                                          onClick={() => {
+                                            setRevisionTarget({ uid, name: user?.displayName || uid });
+                                            setRevisionNoteInput('');
+                                          }}
+                                          className="px-3 py-1.5 rounded bg-rose-950/70 hover:bg-rose-900/90 text-rose-300 border border-rose-800/60 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                                        >
+                                          <RotateCcw className="w-3 h-3" />
+                                          <span>Yêu Cầu Chỉnh Sửa</span>
+                                        </button>
+
+                                        <button
+                                          id={`btn-approve-complete-${uid}`}
+                                          onClick={() => handleApproveCompletion(uid)}
+                                          className="px-3.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+                                        >
+                                          <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                                          <span>Hoàn Thành</span>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-sky-400 font-medium">Chờ kiểm tra</span>
+                                    )
+                                  )}
+
+                                  {/* Revision Confirmation Button for Assignee */}
+                                  {status === 'NEEDS_REVISION' && (
+                                    canHandover ? (
+                                      <button
+                                        id={`btn-submit-revised-${uid}`}
+                                        onClick={() => {
+                                          setRevisedTarget({ uid, name: user?.displayName || uid });
+                                          setRevisedNoteInput('');
+                                        }}
+                                        className="px-3.5 py-1.5 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+                                      >
+                                        <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
+                                        <span>Xác Nhận Đã Chỉnh Sửa</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-rose-400 font-medium">Đang chỉnh sửa</span>
+                                    )
+                                  )}
+
+                                  {/* Completed status controls: Assigner can reopen if necessary */}
+                                  {status === 'COMPLETED' && canReview && (
+                                    <button
+                                      onClick={() => handleReopenAssignment(uid)}
+                                      className="px-2 py-1 rounded bg-[#161616] hover:bg-[#222] border border-[#333] text-[#888] hover:text-white text-[10px] flex items-center gap-1 transition-all"
+                                      title="Mở lại phần việc này"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      <span>Mở lại</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* T+15 Retention Rule Info Card */}
@@ -666,50 +872,176 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
               )}
             </div>
           )}
-
-          {/* 4. TAB HOẠT ĐỘNG (AUDIT TRAIL TIMELINE) */}
-          {activeTab === 'activity' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="text-[10px] uppercase tracking-wider text-[#666] font-semibold">
-                Dòng Thời Gian Hoạt Động (Immutable Audit Trail)
-              </div>
-              {auditLogs.length === 0 ? (
-                <div className="p-8 text-center text-xs text-[#666] border border-[#222] rounded bg-[#0E0E0E]">
-                  Chưa có nhật ký ghi nhận cho công việc này.
-                </div>
-              ) : (
-                <div className="relative pl-6 border-l border-[#262626] space-y-6">
-                  {auditLogs.map((log) => {
-                    const actor = dataService.getUserById(log.actorId);
-                    return (
-                      <div key={log.eventId} className="relative space-y-1">
-                        {/* Dot */}
-                        <div className="absolute -left-[31px] top-1 w-2.5 h-2.5 rounded-full bg-[#D4AF37] border-2 border-[#0A0A0A]"></div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-white">
-                            {actor?.displayName || log.actorId}
-                          </span>
-                          <span className="font-mono text-[10px] text-[#666]">
-                            {formatVietnamDateTime(log.createdAt)}
-                          </span>
-                        </div>
-                        <div className="text-xs text-[#aaa]">
-                          Hành động: <span className="text-[#D4AF37] font-mono text-[11px]">{log.action}</span>
-                        </div>
-                        {log.newValue && (
-                          <pre className="p-2 rounded bg-[#121212] border border-[#222] text-[10px] font-mono text-[#888] overflow-x-auto">
-                            {JSON.stringify(log.newValue, null, 2)}
-                          </pre>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
+
+      {/* POP-UP MODAL 1: XÁC NHẬN BÀN GIAO CÔNG VIỆC */}
+      {handoverTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0F0F0F] border border-[#333] rounded-lg w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-[#222] pb-3">
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-[#D4AF37]" />
+                <h3 className="text-base font-semibold text-white">Xác Nhận Đã Bàn Giao</h3>
+              </div>
+              <button
+                onClick={() => setHandoverTarget(null)}
+                className="text-[#777] hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#aaa] leading-relaxed">
+              Bạn chuẩn bị bàn giao phần việc của <strong className="text-white">{handoverTarget.name}</strong> cho người giao việc (<strong className="text-[#D4AF37]">{assigner?.displayName || 'Người giao việc'}</strong>) kiểm tra và nghiệm thu.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-[#bbb]">
+                Ghi chú bàn giao / Kết quả công việc (tùy chọn):
+              </label>
+              <textarea
+                rows={3}
+                value={handoverNote}
+                onChange={(e) => setHandoverNote(e.target.value)}
+                placeholder="Ví dụ: Đã hoàn thiện xong các mục theo yêu cầu và đã cập nhật tài liệu..."
+                className="w-full px-3 py-2 rounded bg-[#161616] border border-[#2a2a2a] text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#222]">
+              <button
+                type="button"
+                onClick={() => setHandoverTarget(null)}
+                className="px-4 py-2 rounded bg-[#1a1a1a] hover:bg-[#252525] border border-[#333] text-xs text-[#aaa] hover:text-white transition-all"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingHandover}
+                onClick={handleConfirmHandover}
+                className="px-4 py-2 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+              >
+                <Send className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>{isSubmittingHandover ? 'Đang Gửi...' : 'Xác Nhận Bàn Giao'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP MODAL 2: YÊU CẦU CHỈNH SỬA CÔNG VIỆC */}
+      {revisionTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0F0F0F] border border-rose-900/40 rounded-lg w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-[#222] pb-3">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-rose-400" />
+                <h3 className="text-base font-semibold text-white">Yêu Cầu Chỉnh Sửa</h3>
+              </div>
+              <button
+                onClick={() => setRevisionTarget(null)}
+                className="text-[#777] hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#aaa] leading-relaxed">
+              Yêu cầu thành viên <strong className="text-white">{revisionTarget.name}</strong> chỉnh sửa lại phần việc. Trạng thái của thành viên này sẽ chuyển về <strong className="text-rose-400">Chờ chỉnh sửa</strong>.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-rose-300 flex items-center gap-1">
+                <span>Nội dung yêu cầu chỉnh sửa (bắt buộc):</span>
+              </label>
+              <textarea
+                rows={3}
+                value={revisionNoteInput}
+                onChange={(e) => setRevisionNoteInput(e.target.value)}
+                placeholder="Ví dụ: Cần bổ sung kiểm thử, cập nhật lại định dạng báo cáo theo mẫu mới..."
+                className="w-full px-3 py-2 rounded bg-[#161616] border border-rose-900/40 text-xs text-white placeholder-[#555] focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#222]">
+              <button
+                type="button"
+                onClick={() => setRevisionTarget(null)}
+                className="px-4 py-2 rounded bg-[#1a1a1a] hover:bg-[#252525] border border-[#333] text-xs text-[#aaa] hover:text-white transition-all"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingRevision || !revisionNoteInput.trim()}
+                onClick={handleConfirmRevision}
+                className="px-4 py-2 rounded bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{isSubmittingRevision ? 'Đang Gửi...' : 'Gửi Yêu Cầu Chỉnh Sửa'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP MODAL 3: XÁC NHẬN ĐÃ CHỈNH SỬA XONG */}
+      {revisedTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0F0F0F] border border-[#333] rounded-lg w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-[#222] pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-[#D4AF37]" />
+                <h3 className="text-base font-semibold text-white">Xác Nhận Đã Chỉnh Sửa</h3>
+              </div>
+              <button
+                onClick={() => setRevisedTarget(null)}
+                className="text-[#777] hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#aaa] leading-relaxed">
+              Xác nhận bạn đã hoàn thành chỉnh sửa các yêu cầu và bàn giao lại cho người giao việc (<strong className="text-[#D4AF37]">{assigner?.displayName || 'Người giao việc'}</strong>) kiểm tra lại.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-[#bbb]">
+                Ghi chú nội dung đã chỉnh sửa (tùy chọn):
+              </label>
+              <textarea
+                rows={3}
+                value={revisedNoteInput}
+                onChange={(e) => setRevisedNoteInput(e.target.value)}
+                placeholder="Ví dụ: Đã khắc phục lỗi và bổ sung tài liệu theo đúng góp ý..."
+                className="w-full px-3 py-2 rounded bg-[#161616] border border-[#2a2a2a] text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#222]">
+              <button
+                type="button"
+                onClick={() => setRevisedTarget(null)}
+                className="px-4 py-2 rounded bg-[#1a1a1a] hover:bg-[#252525] border border-[#333] text-xs text-[#aaa] hover:text-white transition-all"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingRevised}
+                onClick={handleConfirmRevised}
+                className="px-4 py-2 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow flex items-center gap-1.5 transition-all"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>{isSubmittingRevised ? 'Đang Gửi...' : 'Xác Nhận Đã Sửa Xong'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDeleteModal
         isOpen={showDeleteModal}

@@ -91,9 +91,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {projects.map((proj) => {
-          const projectTasks = tasks.filter((t) => t.projectId === proj.projectId);
-          const completedTasks = projectTasks.filter((t) => t.status === 'COMPLETED');
-          const completionPct = projectTasks.length > 0 ? Math.round((completedTasks.length / projectTasks.length) * 100) : 0;
+          const stats = dataService.getProjectProgressStats(proj.projectId);
           const owner = dataService.getUserById(proj.ownerId);
           const canDeleteProject = currentUser.role === 'ADMIN' || currentUser.uid === proj.ownerId;
           const memberCount = proj.members ? Object.keys(proj.members).length : 1;
@@ -144,12 +142,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <div className="space-y-2 pt-2 border-t border-[#1a1a1a]">
                 <div className="flex justify-between text-xs text-[#888]">
                   <span>Tiến độ hoàn thành:</span>
-                  <span className="font-mono text-white font-medium">{completionPct}% ({completedTasks.length}/{projectTasks.length} việc)</span>
+                  <span className="font-mono text-white font-medium">
+                    {stats.progressPct}% {stats.totalAssignments > 0 ? `(${stats.completedAssignments}/${stats.totalAssignments} người)` : `(${stats.completedTasks}/${stats.totalTasks} việc)`}
+                  </span>
                 </div>
                 <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-[#D4AF37] rounded-full transition-all"
-                    style={{ width: `${completionPct}%` }}
+                    className={`h-full rounded-full transition-all ${stats.progressPct === 100 ? 'bg-emerald-500' : 'bg-[#D4AF37]'}`}
+                    style={{ width: `${stats.progressPct}%` }}
                   ></div>
                 </div>
 

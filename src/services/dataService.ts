@@ -860,30 +860,49 @@ class DataService {
     }
 
     // Recalculate Task overall status & progress summary
+    this.recalculateTask(taskId);
+
+    this.saveState();
+    this.notify();
+    return { success: true };
+  }
+
+  // Recalculate Task overall progress and status based on multi-assignee completion rule
+  public recalculateTask(taskId: string): void {
+    const task = this.tasks.find((t) => t.taskId === taskId && !t.deleted);
+    if (!task) return;
+
     const taskAssignments = this.getAssignmentsForTask(taskId);
-    const totalProgress = taskAssignments.reduce((sum, a) => sum + a.progress, 0);
-    const avgProgress = taskAssignments.length > 0 ? Math.round(totalProgress / taskAssignments.length) : 0;
-    task.progressSummary = avgProgress;
+    const totalAssignees = task.assigneeIds.length;
+
+    if (totalAssignees === 0) {
+      task.progressSummary = 0;
+      return;
+    }
+
+    const completedCount = taskAssignments.filter((a) => a.status === 'COMPLETED').length;
+    // Each assignee is allocated an equal percentage: 100% / totalAssignees
+    task.progressSummary = Math.round((completedCount / totalAssignees) * 100);
     task.updatedAt = new Date().toISOString();
 
-    // COMPLETION RULE: A multi-assignee task becomes COMPLETED only when ALL active assignments are COMPLETED!
-    const allCompleted = taskAssignments.length > 0 && taskAssignments.every((a) => a.status === 'COMPLETED');
+    // COMPLETION RULE: Only when ALL assignees are approved COMPLETED by the assigner does the task become COMPLETED
+    const allCompleted = completedCount === totalAssignees && totalAssignees > 0;
 
     if (allCompleted && task.status !== 'COMPLETED') {
       task.status = 'COMPLETED';
       task.completedAt = new Date().toISOString();
-      // T+15 rule: chatWritableUntil = completedAt + 15 days
       task.chatWritableUntil = calculateT15Retention(task.completedAt);
 
-      this.addAuditLog('TASK_COMPLETED', 'TASK', taskId, { status: 'IN_PROGRESS' }, { status: 'COMPLETED', completedAt: task.completedAt, chatWritableUntil: task.chatWritableUntil }, task.projectId, taskId);
+      this.addAuditLog('TASK_COMPLETED', 'TASK', taskId, { status: 'IN_PROGRESS' }, { status: 'COMPLETED', completedAt: task.completedAt }, task.projectId, taskId);
 
       // Notify assigner
+      const actor = this.getCurrentUser();
       if (task.assignerId !== actor.uid) {
         this.addNotification({
           userId: task.assignerId,
           type: 'TASK_COMPLETED',
-          title: `Công việc hoàn thành: ${task.title}`,
-          body: `Tất cả người nhận việc đã hoàn thành 100% nhiệm vụ.`,
+          title: `Công việc hoàn thành 100%: ${task.title}`,
+          body: `Tất cả ${totalAssignees} người nhận việc đã được nghiệm thu và hoàn thành nhiệm vụ.`,
           projectId: task.projectId,
           taskId: task.taskId,
           deduplicationKey: `${task.assignerId}_${taskId}_ALL_COMPLETED`,
@@ -895,10 +914,258 @@ class DataService {
       delete task.completedAt;
       delete task.chatWritableUntil;
     }
+  }
+
+  // Handover Assignment: Assignee submits their work for review
+  public handoverAssignment(taskId: string, userId: string, submissionNote?: string): { success: boolean; error?: string } {
+    const actor = this.getCurrentUser();
+    const task = this.getTaskById(taskId);
+    if (!task) return { success: false, error: 'Không tìm thấy công việc.' };
+
+    const isAuthorized = actor.uid === userId || actor.role === 'ADMIN';
+    if (!isAuthorized) {
+      return { success: false, error: 'Bạn chỉ có thể bàn giao phần công việc của chính mình.' };
+    }
+
+    const key = `${taskId}_${userId}`;
+    let assignment = this.assignments[key];
+    if (!assignment) {
+      assignment = {
+        taskId,
+        userId,
+        status: 'IN_PROGRESS',
+        progress: 0,
+        assignedAt: task.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      this.assignments[key] = assignment;
+    }
+
+    assignment.status = 'SUBMITTED';
+    assignment.submittedAt = new Date().toISOString();
+    assignment.submissionNote = submissionNote?.trim() || '';
+    assignment.updatedAt = new Date().toISOString();
+
+    const user = this.getUserById(userId);
+    // Notify assigner
+    if (task.assignerId !== actor.uid) {
+      this.addNotification({
+        userId: task.assignerId,
+        type: 'TASK_UPDATED',
+        title: `Đã bàn giao công việc: ${task.title}`,
+        body: `${user?.displayName || 'Thành viên'} đã bàn giao công việc. Vui lòng kiểm tra và nghiệm thu.${submissionNote ? ` Ghi chú: "${submissionNote}"` : ''}`,
+        projectId: task.projectId,
+        taskId: task.taskId,
+        deduplicationKey: `${task.assignerId}_${taskId}_${userId}_HANDOVER_${Date.now()}`,
+      });
+    }
+
+    this.addAuditLog('ASSIGNMENT_SUBMITTED', 'TASK', taskId, undefined, { userId, submissionNote }, task.projectId, taskId);
 
     this.saveState();
     this.notify();
     return { success: true };
+  }
+
+  // Request Revision: Assigner inspects work and requests changes
+  public requestRevision(taskId: string, userId: string, revisionNote: string): { success: boolean; error?: string } {
+    const actor = this.getCurrentUser();
+    const task = this.getTaskById(taskId);
+    if (!task) return { success: false, error: 'Không tìm thấy công việc.' };
+
+    const canReview = actor.uid === task.assignerId || actor.role === 'ADMIN';
+    if (!canReview) {
+      return { success: false, error: 'Chỉ người giao việc hoặc Quản trị viên mới có quyền yêu cầu chỉnh sửa.' };
+    }
+
+    const key = `${taskId}_${userId}`;
+    let assignment = this.assignments[key];
+    if (!assignment) {
+      return { success: false, error: 'Không tìm thấy thông tin phân công.' };
+    }
+
+    assignment.status = 'NEEDS_REVISION';
+    assignment.revisionRequestedAt = new Date().toISOString();
+    assignment.revisionNote = revisionNote.trim() || 'Vui lòng kiểm tra và chỉnh sửa lại theo yêu cầu.';
+    assignment.progress = 0;
+    delete assignment.completedAt;
+    assignment.updatedAt = new Date().toISOString();
+
+    // Notify assignee
+    const assigner = this.getUserById(task.assignerId);
+    this.addNotification({
+      userId,
+      type: 'TASK_UPDATED',
+      title: `Yêu cầu chỉnh sửa: ${task.title}`,
+      body: `${assigner?.displayName || 'Người giao việc'} đã yêu cầu bạn chỉnh sửa công việc: "${assignment.revisionNote}"`,
+      projectId: task.projectId,
+      taskId: task.taskId,
+      deduplicationKey: `${userId}_${taskId}_REVISION_${Date.now()}`,
+    });
+
+    this.addAuditLog('REVISION_REQUESTED', 'TASK', taskId, undefined, { userId, revisionNote }, task.projectId, taskId);
+
+    this.recalculateTask(taskId);
+    this.saveState();
+    this.notify();
+    return { success: true };
+  }
+
+  // Submit Revision: Assignee finishes edits and hands over again for review
+  public submitRevision(taskId: string, userId: string, note?: string): { success: boolean; error?: string } {
+    const actor = this.getCurrentUser();
+    const task = this.getTaskById(taskId);
+    if (!task) return { success: false, error: 'Không tìm thấy công việc.' };
+
+    const isAuthorized = actor.uid === userId || actor.role === 'ADMIN';
+    if (!isAuthorized) {
+      return { success: false, error: 'Bạn chỉ có thể xác nhận chỉnh sửa phần việc của chính mình.' };
+    }
+
+    const key = `${taskId}_${userId}`;
+    let assignment = this.assignments[key];
+    if (!assignment) {
+      return { success: false, error: 'Không tìm thấy thông tin phân công.' };
+    }
+
+    assignment.status = 'SUBMITTED';
+    assignment.submittedAt = new Date().toISOString();
+    if (note?.trim()) {
+      assignment.submissionNote = `[Đã chỉnh sửa]: ${note.trim()}`;
+    }
+    assignment.updatedAt = new Date().toISOString();
+
+    // Notify assigner
+    const user = this.getUserById(userId);
+    if (task.assignerId !== actor.uid) {
+      this.addNotification({
+        userId: task.assignerId,
+        type: 'TASK_UPDATED',
+        title: `Đã chỉnh sửa xong: ${task.title}`,
+        body: `${user?.displayName || 'Thành viên'} đã hoàn thành chỉnh sửa và bàn giao lại cho bạn kiểm tra.${note ? ` Ghi chú: "${note}"` : ''}`,
+        projectId: task.projectId,
+        taskId: task.taskId,
+        deduplicationKey: `${task.assignerId}_${taskId}_${userId}_REVISED_${Date.now()}`,
+      });
+    }
+
+    this.addAuditLog('REVISION_SUBMITTED', 'TASK', taskId, undefined, { userId, note }, task.projectId, taskId);
+
+    this.saveState();
+    this.notify();
+    return { success: true };
+  }
+
+  // Approve Completion: ONLY assigner can confirm completion
+  public approveAssignmentCompletion(taskId: string, userId: string): { success: boolean; error?: string } {
+    const actor = this.getCurrentUser();
+    const task = this.getTaskById(taskId);
+    if (!task) return { success: false, error: 'Không tìm thấy công việc.' };
+
+    const canReview = actor.uid === task.assignerId || actor.role === 'ADMIN';
+    if (!canReview) {
+      return { success: false, error: 'Chỉ người giao việc hoặc Quản trị viên mới có quyền xác nhận hoàn thành công việc.' };
+    }
+
+    const key = `${taskId}_${userId}`;
+    let assignment = this.assignments[key];
+    if (!assignment) {
+      assignment = {
+        taskId,
+        userId,
+        status: 'IN_PROGRESS',
+        progress: 0,
+        assignedAt: task.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      this.assignments[key] = assignment;
+    }
+
+    assignment.status = 'COMPLETED';
+    assignment.progress = 100;
+    assignment.completedAt = new Date().toISOString();
+    assignment.updatedAt = new Date().toISOString();
+
+    // Notify assignee
+    const assigner = this.getUserById(task.assignerId);
+    this.addNotification({
+      userId,
+      type: 'TASK_COMPLETED',
+      title: `Xác nhận hoàn thành: ${task.title}`,
+      body: `${assigner?.displayName || 'Người giao việc'} đã nghiệm thu và xác nhận bạn hoàn thành công việc!`,
+      projectId: task.projectId,
+      taskId: task.taskId,
+      deduplicationKey: `${userId}_${taskId}_APPROVED_${Date.now()}`,
+    });
+
+    this.addAuditLog('ASSIGNMENT_APPROVED', 'TASK', taskId, undefined, { userId, status: 'COMPLETED' }, task.projectId, taskId);
+
+    this.recalculateTask(taskId);
+    this.saveState();
+    this.notify();
+    return { success: true };
+  }
+
+  // Reopen Assignment: Assigner reopens an assignment if needed
+  public reopenAssignment(taskId: string, userId: string): { success: boolean; error?: string } {
+    const actor = this.getCurrentUser();
+    const task = this.getTaskById(taskId);
+    if (!task) return { success: false, error: 'Không tìm thấy công việc.' };
+
+    const canReview = actor.uid === task.assignerId || actor.role === 'ADMIN';
+    if (!canReview) {
+      return { success: false, error: 'Chỉ người giao việc hoặc Quản trị viên mới có quyền mở lại phần việc.' };
+    }
+
+    const key = `${taskId}_${userId}`;
+    const assignment = this.assignments[key];
+    if (assignment) {
+      assignment.status = 'IN_PROGRESS';
+      assignment.progress = 0;
+      delete assignment.completedAt;
+      assignment.updatedAt = new Date().toISOString();
+    }
+
+    this.recalculateTask(taskId);
+    this.saveState();
+    this.notify();
+    return { success: true };
+  }
+
+  // Project Progress Stats:
+  // "1 dự án có 10 người thì chia đều % cho tất cả người nhận việc và khi mọi người được người giao việc xác nhận hoàn thành thì dự án hoàn thành 100%"
+  public getProjectProgressStats(projectId: string): {
+    totalAssignments: number;
+    completedAssignments: number;
+    progressPct: number;
+    totalTasks: number;
+    completedTasks: number;
+  } {
+    const projectTasks = this.tasks.filter((t) => t.projectId === projectId && !t.deleted);
+    let totalAssignments = 0;
+    let completedAssignments = 0;
+
+    projectTasks.forEach((t) => {
+      totalAssignments += t.assigneeIds.length;
+      const assignments = this.getAssignmentsForTask(t.taskId);
+      completedAssignments += assignments.filter((a) => a.status === 'COMPLETED').length;
+    });
+
+    let progressPct = 0;
+    if (totalAssignments > 0) {
+      progressPct = Math.round((completedAssignments / totalAssignments) * 100);
+    } else if (projectTasks.length > 0) {
+      const completedTasks = projectTasks.filter((t) => t.status === 'COMPLETED').length;
+      progressPct = Math.round((completedTasks / projectTasks.length) * 100);
+    }
+
+    return {
+      totalAssignments,
+      completedAssignments,
+      progressPct,
+      totalTasks: projectTasks.length,
+      completedTasks: projectTasks.filter((t) => t.status === 'COMPLETED').length,
+    };
   }
 
   // Reopen Task

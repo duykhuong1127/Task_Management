@@ -339,6 +339,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
             const project = dataService.getProjectById(task.projectId);
             const assigner = dataService.getUserById(task.assignerId);
             const isCompleted = task.status === 'COMPLETED';
+            const taskAssignments = dataService.getAssignmentsForTask(task.taskId);
+            const completedAssigneesCount = taskAssignments.filter((a) => a.status === 'COMPLETED').length;
 
             return (
               <div
@@ -413,7 +415,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 {/* Progress Summary */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-[#666]">Tiến độ tổng hợp</span>
+                    <span className="text-[#666]">
+                      Tiến độ {task.assigneeIds.length > 0 ? `(${completedAssigneesCount}/${task.assigneeIds.length} người xong)` : ''}
+                    </span>
                     <span className="font-mono text-white font-medium">{task.progressSummary}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
