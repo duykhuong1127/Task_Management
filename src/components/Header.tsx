@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { User } from '@shared/types/models';
 import { dataService } from '../services/dataService';
-import { Bell, ShieldCheck, UserCheck, ChevronDown, CheckCircle2, LogIn, LogOut } from 'lucide-react';
+import { Bell, ShieldCheck, UserCheck, ChevronDown, CheckCircle2, LogIn, LogOut, KeyRound } from 'lucide-react';
 import { PhongPhuLogo } from './PhongPhuLogo';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface HeaderProps {
   currentUser: User;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   unreadCount,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const users = dataService.getUsers();
 
   const handleSwitchUser = (uid: string) => {
@@ -139,6 +141,17 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <div className="pt-2 border-t border-[#222] space-y-1">
                 <button
+                  id="btn-header-change-password"
+                  onClick={() => {
+                    setShowUserDropdown(false);
+                    setShowChangePasswordModal(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded bg-[#181818] hover:bg-[#222] border border-[#333] text-left text-xs text-[#CCC] hover:text-white font-medium transition-all"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Đổi Mật Khẩu...</span>
+                </button>
+                <button
                   id="btn-switch-gmail-dropdown"
                   onClick={() => {
                     setShowUserDropdown(false);
@@ -185,6 +198,11 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </div>
+
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+      />
     </header>
   );
 };

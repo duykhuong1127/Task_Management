@@ -3,6 +3,7 @@ import { Task, User, TaskAssignment, ChatMessage, TaskFile } from '@shared/types
 import { dataService } from '../services/dataService';
 import { formatVietnamDateTime, isOverdue, isWithin72Hours, isChatWritable } from '../utils/date';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { downloadTaskFile } from '../utils/downloadHelper';
 import {
   X,
   CheckCircle2,
@@ -56,6 +57,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
   const [revisedTarget, setRevisedTarget] = useState<{ uid: string; name: string } | null>(null);
   const [revisedNoteInput, setRevisedNoteInput] = useState('');
   const [isSubmittingRevised, setIsSubmittingRevised] = useState(false);
+  const [downloadNotification, setDownloadNotification] = useState<{ fileName: string; message: string; isError?: boolean } | null>(null);
 
   const assignments = dataService.getAssignmentsForTask(task.taskId);
   const messages = dataService.getMessages(task.taskId);
@@ -186,25 +188,70 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
     if (file) {
       setIsUploading(true);
       const assignerEmail = assigner?.email || 'nguoigiaoviec@gmail.com';
-      setTimeout(() => {
-        const res = dataService.uploadFile(task.taskId, file.name, file.type || 'application/octet-stream', file.size || 1024 * 500);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const res = dataService.uploadFile(
+          task.taskId,
+          file.name,
+          file.type || 'application/octet-stream',
+          file.size || 1024 * 500,
+          dataUrl
+        );
         setIsUploading(false);
         if (!res.success) {
-          alert(res.error);
+          setDownloadNotification({
+            fileName: file.name,
+            message: res.error || 'Lỗi khi tải tệp lên.',
+            isError: true,
+          });
         } else {
-          alert(`Tệp "${file.name}" đã được tải lên và lưu trực tiếp vào tài khoản Google Drive của Người giao việc:\n- Gmail người nhận lưu trữ: ${assignerEmail}\n- Đường dẫn Drive: /Task Management App/${project?.name || 'Alpha'}/${task.taskId}/${file.name}`);
+          setDownloadNotification({
+            fileName: file.name,
+            message: `Tệp "${file.name}" đã được tải lên và lưu trực tiếp vào Google Drive (${assignerEmail}).`,
+            isError: false,
+          });
+          setTimeout(() => setDownloadNotification(null), 6000);
         }
-      }, 500);
+      };
+      reader.onerror = () => {
+        setIsUploading(false);
+        setDownloadNotification({
+          fileName: file.name,
+          message: 'Không thể đọc tệp từ thiết bị.',
+          isError: true,
+        });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
-  // Handle file download with security check
+  // Handle file download with security check and real browser trigger
   const handleDownloadFile = (fileId: string) => {
     const res = dataService.authorizeFileDownload(fileId);
-    if (!res.authorized) {
-      alert(res.error || 'Quyền bị từ chối!');
+    if (!res.authorized || !res.file) {
+      setDownloadNotification({
+        fileName: 'Tệp tin',
+        message: res.error || 'Quyền truy cập bị từ chối!',
+        isError: true,
+      });
+      return;
+    }
+
+    const downloadRes = downloadTaskFile(res.file);
+    if (downloadRes.success) {
+      setDownloadNotification({
+        fileName: res.file.name,
+        message: `Đã cấp quyền truy cập bảo mật thành công. Đang tải tệp "${res.file.name}" về thiết bị của bạn.`,
+        isError: false,
+      });
+      setTimeout(() => setDownloadNotification(null), 6000);
     } else {
-      alert(`Đã cấp quyền truy cập bảo mật thành công cho tệp: ${res.file?.name}\nĐang truyền tải luồng dữ liệu bảo mật từ Google Drive.`);
+      setDownloadNotification({
+        fileName: res.file.name,
+        message: downloadRes.message || 'Lỗi khi tải tệp tin.',
+        isError: true,
+      });
     }
   };
 
@@ -628,6 +675,34 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
           {/* 2. TAB TỆP ĐÍNH KÈM (GOOGLE DRIVE) */}
           {activeTab === 'files' && (
             <div className="space-y-6 animate-in fade-in">
+              {/* Download / Upload Notification Toast Banner */}
+              {downloadNotification && (
+                <div
+                  className={`p-3 rounded border flex items-center justify-between gap-3 text-xs animate-in fade-in ${
+                    downloadNotification.isError
+                      ? 'bg-rose-950/70 border-rose-800 text-rose-200'
+                      : 'bg-emerald-950/70 border-emerald-700/60 text-emerald-200 shadow-lg'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {downloadNotification.isError ? (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    )}
+                    <div>
+                      <div className="font-semibold text-white">{downloadNotification.fileName}</div>
+                      <div className="text-[11px] opacity-90">{downloadNotification.message}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setDownloadNotification(null)}
+                    className="text-[#888] hover:text-white transition-colors p-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
               {/* Google Drive Owner Architecture Note */}
               <div className="p-4 rounded-lg border border-[#D4AF37]/30 bg-[#0E0E0E] text-xs space-y-2.5">
                 <div className="flex items-center justify-between">

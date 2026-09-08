@@ -9,6 +9,14 @@ export interface User {
   photoURL?: string;
   role: UserRole;
   status: UserStatus;
+  password?: string;
+  driveAccessStatus?: 'GRANTED' | 'DENIED' | 'NOT_PROMPTED';
+  driveAccessGrantedAt?: string;
+  driveAccessDeniedAt?: string;
+  driveAccessToken?: string;
+  driveRootFolderId?: string;
+  driveRootFolderName?: string;
+  canAssignTasks?: boolean;
   createdAt: string;
   activatedAt?: string;
   disabledAt?: string;
@@ -73,6 +81,10 @@ export interface Task {
   status: TaskStatus;
   deadline: string; // ISO 8601 Timestamp
   progressSummary: number; // 0-100 average or aggregated progress
+  driveFolderId?: string;
+  driveFolderUrl?: string;
+  driveOwnerEmail?: string;
+  driveSyncedAt?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +122,7 @@ export interface TaskFile {
   driveOwnerId: string;
   driveOwnerEmail?: string;
   drivePath?: string;
+  dataUrl?: string;
   createdAt: string;
   deleted: boolean;
   deletedAt?: string;
@@ -130,7 +143,9 @@ export type NotificationType =
   | 'ASSIGNMENT_SUBMITTED'
   | 'REVISION_REQUESTED'
   | 'REVISION_SUBMITTED'
-  | 'ASSIGNMENT_APPROVED';
+  | 'ASSIGNMENT_APPROVED'
+  | 'DRIVE_PERMISSION_DENIED'
+  | 'DRIVE_PERMISSION_GRANTED';
 
 export interface Notification {
   notificationId: string;
@@ -152,6 +167,9 @@ export type AuditAction =
   | 'USER_DISABLED'
   | 'USER_ENABLED'
   | 'USER_APPROVED'
+  | 'USER_LOGIN'
+  | 'USER_REGISTERED'
+  | 'USER_UPDATED'
   | 'ROLE_CHANGED'
   | 'PROJECT_CREATED'
   | 'PROJECT_UPDATED'
@@ -171,6 +189,8 @@ export type AuditAction =
   | 'FILE_REMOVED'
   | 'DRIVE_CONNECTED'
   | 'DRIVE_DISCONNECTED'
+  | 'DRIVE_PERMISSION_DENIED'
+  | 'DRIVE_PERMISSION_GRANTED'
   | 'ASSIGNMENT_SUBMITTED'
   | 'REVISION_REQUESTED'
   | 'REVISION_SUBMITTED'

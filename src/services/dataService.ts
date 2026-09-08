@@ -23,6 +23,7 @@ import {
   SEED_AUDIT_LOGS,
 } from './seedData';
 import { calculateT15Retention, isChatWritable, isWithin72Hours, isOverdue, buildReminderDeduplicationKey, getVietnamCurrentDateString } from '../utils/date';
+import { driveService } from './driveService';
 
 class DataService {
   private users: User[] = [];
@@ -60,9 +61,31 @@ class DataService {
             const existing = this.users.find((u) => u.normalizedEmail === seedU.normalizedEmail);
             if (!existing) {
               this.users.unshift(JSON.parse(JSON.stringify(seedU)));
-            } else if (seedU.role === 'ADMIN') {
-              existing.role = 'ADMIN';
-              existing.status = 'ACTIVE';
+            } else {
+              if (seedU.role === 'ADMIN') {
+                existing.role = 'ADMIN';
+                existing.status = 'ACTIVE';
+              }
+              if (!existing.password) {
+                existing.password = seedU.password || '123456';
+              }
+            }
+          }
+          // Ensure all users have a password set & default driveAccessStatus
+          for (const u of this.users) {
+            if (!u.password) {
+              u.password = '123456';
+            }
+            if (!u.driveAccessStatus) {
+              // Designated admin duykhuong has granted access by default, others start as NOT_PROMPTED
+              if (u.normalizedEmail === 'duykhuong332@gmail.com') {
+                u.driveAccessStatus = 'GRANTED';
+                u.canAssignTasks = true;
+                u.driveRootFolderId = 'drive_phongphu_' + u.uid;
+                u.driveRootFolderName = '[Phong Phú] Quản lý Công việc & Dự án';
+              } else {
+                u.driveAccessStatus = 'NOT_PROMPTED';
+              }
             }
           }
           // Ensure admin user_duykhuong is member of projects
@@ -243,6 +266,239 @@ class DataService {
     };
   }
 
+  // Password Authentication (Login)
+  public loginWithPassword(
+    email: string,
+    password: string
+  ): { success: boolean; user?: User; notFound?: boolean; needsApproval?: boolean; error?: string; message?: string } {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) {
+      return { success: false, error: 'Vui lòng nhập địa chỉ Gmail hợp lệ.' };
+    }
+    if (!password || !password.trim()) {
+      return { success: false, error: 'Vui lòng nhập mật khẩu.' };
+    }
+
+    const isAdminEmail = normalized === 'duykhuong332@gmail.com' || normalized === 'admin@company.com';
+    let user = this.users.find((u) => u.normalizedEmail === normalized);
+
+    if (!user) {
+      return {
+        success: false,
+        notFound: true,
+        error: 'Tài khoản chưa tồn tại trong hệ thống. Vui lòng chuyển sang tab "Đăng ký" hoặc liên hệ Admin.',
+      };
+    }
+
+    // Auto-activate designated admins if needed
+    if (isAdminEmail) {
+      user.role = 'ADMIN';
+      user.status = 'ACTIVE';
+    }
+
+    // Check password
+    if (!user.password) {
+      // First time password adoption if older profile had no password
+      user.password = password;
+    } else if (user.password !== password) {
+      return {
+        success: false,
+        error: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại!',
+      };
+    }
+
+    // Check account status
+    if (user.status === 'DISABLED') {
+      return {
+        success: false,
+        error: 'Tài khoản của bạn đã bị vô hiệu hóa bởi Quản trị viên.',
+      };
+    }
+
+    if (user.status !== 'ACTIVE') {
+      return {
+        success: false,
+        needsApproval: true,
+        user,
+        message: 'Tài khoản đang chờ Quản trị viên duyệt trước khi có thể truy cập hệ thống.',
+      };
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    user.updatedAt = new Date().toISOString();
+    this.currentUserId = user.uid;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('task_pwa_session_uid', user.uid);
+    }
+    this.addAuditLog('USER_LOGIN', 'USER', user.uid, undefined, {
+      email: user.email,
+      method: 'PASSWORD_LOGIN',
+    });
+    this.saveState();
+    this.notify();
+
+    return {
+      success: true,
+      user,
+      message: 'Đăng nhập thành công',
+    };
+  }
+
+  // Password Authentication (Registration)
+  public registerWithPassword(
+    email: string,
+    password: string,
+    displayName?: string
+  ): { success: boolean; user?: User; needsApproval?: boolean; error?: string; message?: string } {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) {
+      return { success: false, error: 'Vui lòng nhập địa chỉ Gmail hợp lệ.' };
+    }
+    if (!password || password.length < 6) {
+      return { success: false, error: 'Mật khẩu phải có ít nhất 6 ký tự.' };
+    }
+
+    const existing = this.users.find((u) => u.normalizedEmail === normalized);
+    if (existing) {
+      return { success: false, error: 'Địa chỉ Gmail này đã tồn tại trong hệ thống. Vui lòng chọn Đăng nhập.' };
+    }
+
+    const isAdminEmail = normalized === 'duykhuong332@gmail.com' || normalized === 'admin@company.com';
+    const uid = 'user_' + Math.random().toString(36).substring(2, 9);
+    const newUser: User = {
+      uid,
+      email: email.trim(),
+      normalizedEmail: normalized,
+      displayName: displayName?.trim() || (isAdminEmail ? 'Duy Khương (Admin)' : normalized.split('@')[0]),
+      photoURL: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+      role: isAdminEmail ? 'ADMIN' : 'MEMBER',
+      status: isAdminEmail ? 'ACTIVE' : 'PENDING_APPROVAL',
+      password: password,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+    };
+
+    this.users.push(newUser);
+    if (newUser.status === 'ACTIVE') {
+      this.currentUserId = uid;
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('task_pwa_session_uid', uid);
+      }
+    }
+
+    this.addAuditLog('USER_REGISTERED', 'USER', uid, undefined, {
+      email: newUser.email,
+      status: newUser.status,
+      method: 'PASSWORD_REGISTRATION',
+    });
+
+    // Notify Admins
+    const adminUsers = this.users.filter((u) => u.role === 'ADMIN');
+    adminUsers.forEach((admin) => {
+      this.addNotification({
+        userId: admin.uid,
+        type: 'USER_REGISTERED',
+        title: 'Yêu cầu đăng ký tài khoản mới',
+        body: `Thành viên ${newUser.displayName} (${newUser.email}) vừa đăng ký với mật khẩu bảo mật. Vui lòng xét duyệt tài khoản.`,
+        deduplicationKey: `REG_${newUser.uid}`,
+      });
+    });
+
+    this.saveState();
+    this.notify();
+
+    if (newUser.status !== 'ACTIVE') {
+      return {
+        success: true,
+        user: newUser,
+        needsApproval: true,
+        message: 'Đăng ký thành công! Vui lòng chờ Quản trị viên xét duyệt tài khoản.',
+      };
+    }
+
+    return {
+      success: true,
+      user: newUser,
+      needsApproval: false,
+      message: 'Đăng ký và kích hoạt tài khoản Quản trị thành công!',
+    };
+  }
+
+  // Change Password
+  public changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): { success: boolean; error?: string; message?: string } {
+    const actor = this.getCurrentUser();
+    if (!actor || actor.uid === 'anonymous') {
+      return { success: false, error: 'Chưa đăng nhập.' };
+    }
+
+    if (actor.password && actor.password !== currentPassword) {
+      return { success: false, error: 'Mật khẩu hiện tại không chính xác.' };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+    }
+
+    actor.password = newPassword;
+    actor.updatedAt = new Date().toISOString();
+
+    this.addAuditLog('USER_UPDATED', 'USER', actor.uid, undefined, {
+      action: 'CHANGE_PASSWORD',
+      email: actor.email,
+    });
+
+    this.saveState();
+    this.notify();
+
+    return { success: true, message: 'Đổi mật khẩu thành công!' };
+  }
+
+  // Admin Reset Password
+  public adminResetPassword(
+    userId: string,
+    newPassword: string
+  ): { success: boolean; error?: string; message?: string } {
+    const actor = this.getCurrentUser();
+    if (actor.role !== 'ADMIN') {
+      return { success: false, error: 'Chỉ Quản trị viên (ADMIN) mới có quyền đặt lại mật khẩu.' };
+    }
+
+    const target = this.users.find((u) => u.uid === userId);
+    if (!target) {
+      return { success: false, error: 'Không tìm thấy người dùng.' };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+    }
+
+    target.password = newPassword;
+    target.updatedAt = new Date().toISOString();
+
+    this.addAuditLog('USER_UPDATED', 'USER', target.uid, undefined, {
+      action: 'ADMIN_RESET_PASSWORD',
+      targetEmail: target.email,
+      resetBy: actor.email,
+    });
+
+    this.addNotification({
+      userId: target.uid,
+      type: 'ACCOUNT_STATUS',
+      title: 'Mật khẩu đã được đặt lại',
+      body: `Quản trị viên (${actor.displayName}) đã đặt lại mật khẩu cho tài khoản của bạn. Mật khẩu mới: ${newPassword}`,
+      deduplicationKey: `RESET_PWD_${target.uid}_${Date.now()}`,
+    });
+
+    this.saveState();
+    this.notify();
+
+    return { success: true, message: `Đã đặt lại mật khẩu cho ${target.displayName} thành công!` };
+  }
+
   // Google / Gmail Authentication
   public loginWithGoogle(
     email: string,
@@ -367,6 +623,110 @@ class DataService {
 
   public getUserById(uid: string): User | undefined {
     return this.users.find((u) => u.uid === uid);
+  }
+
+  // Google Drive Access & Permission Management
+  public updateDrivePermission(
+    userId: string,
+    granted: boolean,
+    token?: string
+  ): { success: boolean; user?: User; error?: string } {
+    const user = this.users.find((u) => u.uid === userId);
+    if (!user) return { success: false, error: 'Không tìm thấy thông tin người dùng.' };
+
+    const nowIso = new Date().toISOString();
+    if (granted) {
+      user.driveAccessStatus = 'GRANTED';
+      user.canAssignTasks = true;
+      user.driveAccessGrantedAt = nowIso;
+      user.driveAccessToken = token || 'gdrive_granted_token_' + user.uid;
+      user.driveRootFolderId = 'drive_phongphu_' + user.uid;
+      user.driveRootFolderName = '[Phong Phú] Quản lý Công việc & Dự án';
+      user.updatedAt = nowIso;
+
+      this.addAuditLog('DRIVE_CONNECTED', 'USER', user.uid, undefined, {
+        email: user.email,
+        displayName: user.displayName,
+        status: 'GRANTED',
+        driveRootFolderName: user.driveRootFolderName,
+      });
+
+      this.addNotification({
+        userId: user.uid,
+        type: 'DRIVE_PERMISSION_GRANTED',
+        title: 'Đã cấp quyền Google Drive thành công',
+        body: 'Hệ thống đã liên kết với Google Drive của bạn. Dữ liệu công việc do bạn giao sẽ được tự động lưu trữ và đồng bộ an toàn.',
+        deduplicationKey: `${user.uid}_DRIVE_GRANTED_${Date.now()}`,
+      });
+    } else {
+      user.driveAccessStatus = 'DENIED';
+      user.canAssignTasks = false;
+      user.driveAccessDeniedAt = nowIso;
+      user.driveAccessToken = undefined;
+      user.updatedAt = nowIso;
+
+      this.addAuditLog('DRIVE_PERMISSION_DENIED', 'USER', user.uid, undefined, {
+        email: user.email,
+        displayName: user.displayName,
+        status: 'DENIED',
+        actionTaken: 'LOCKED_TASK_ASSIGNMENT_PERMISSION',
+      });
+
+      // BÁO LẠI CHO QUẢN TRỊ VIÊN (ADMIN) theo yêu cầu
+      const admins = this.users.filter((u) => u.role === 'ADMIN');
+      admins.forEach((admin) => {
+        this.addNotification({
+          userId: admin.uid,
+          type: 'DRIVE_PERMISSION_DENIED',
+          title: `[CẢNH BÁO] Người dùng TỪ CHỐI cấp quyền Google Drive`,
+          body: `Người dùng ${user.displayName} (${user.email}) đã TỪ CHỐI cấp quyền truy cập Google Drive. Hệ thống đã tự động KHÓA quyền giao việc của tài khoản này theo quy định bắt buộc.`,
+          deduplicationKey: `${admin.uid}_${user.uid}_DRIVE_DENIED_${Date.now()}`,
+        });
+      });
+    }
+
+    this.saveState();
+    this.notify();
+    return { success: true, user };
+  }
+
+  public canUserAssignTasks(userId: string): {
+    allowed: boolean;
+    reason?: 'DENIED' | 'NOT_PROMPTED' | 'INACTIVE';
+    message?: string;
+  } {
+    const user = this.users.find((u) => u.uid === userId);
+    if (!user) return { allowed: false, reason: 'INACTIVE', message: 'Người dùng không tồn tại.' };
+    if (user.status !== 'ACTIVE') return { allowed: false, reason: 'INACTIVE', message: 'Tài khoản chưa được kích hoạt.' };
+
+    if (user.driveAccessStatus === 'DENIED' || user.canAssignTasks === false) {
+      return {
+        allowed: false,
+        reason: 'DENIED',
+        message: 'Bạn đã TỪ CHỐI cấp quyền truy cập Google Drive. Theo quy định, người giao việc bắt buộc phải cấp quyền Google Drive để lưu trữ dữ liệu. Quyền giao việc của bạn đã bị khóa và báo cáo cho Quản trị viên.',
+      };
+    }
+
+    if (!user.driveAccessStatus || user.driveAccessStatus === 'NOT_PROMPTED') {
+      return {
+        allowed: false,
+        reason: 'NOT_PROMPTED',
+        message: 'Bạn cần xác nhận cấp quyền truy cập Google Drive trước khi giao việc.',
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  public resetUserDrivePermission(userId: string): { success: boolean; error?: string } {
+    const user = this.users.find((u) => u.uid === userId);
+    if (!user) return { success: false, error: 'Không tìm thấy người dùng.' };
+    user.driveAccessStatus = 'NOT_PROMPTED';
+    user.canAssignTasks = undefined;
+    user.updatedAt = new Date().toISOString();
+    this.saveState();
+    this.notify();
+    return { success: true };
   }
 
   // Admin User Management
@@ -729,6 +1089,27 @@ class DataService {
       return { success: false, error: 'Tài khoản chưa được kích hoạt để tạo công việc.' };
     }
 
+    // Enforce Google Drive permission requirement:
+    // "khi vào hệ thống sẽ hỏi họ có cho phép truy cập gg drive không và họ phải chấp nhận nếu không chấp nhận hệ thống sẽ không cho họ giao việc và báo lại cho admin"
+    const canAssign = this.canUserAssignTasks(actor.uid);
+    if (!canAssign.allowed) {
+      // Alert admin if user attempted to bypass restriction
+      const admins = this.users.filter((u) => u.role === 'ADMIN');
+      admins.forEach((admin) => {
+        this.addNotification({
+          userId: admin.uid,
+          type: 'DRIVE_PERMISSION_DENIED',
+          title: `[CẢNH BÁO VI PHẠM] Cố gắng giao việc khi chưa cấp quyền Google Drive`,
+          body: `Người dùng ${actor.displayName} (${actor.email}) vừa cố gắng giao việc "${params.title}" khi quyền Google Drive ${actor.driveAccessStatus === 'DENIED' ? 'đã bị TỪ CHỐI' : 'chưa được cấp'}. Hệ thống đã chặn hành vi này và bảo vệ quy định công ty.`,
+          deduplicationKey: `${admin.uid}_${actor.uid}_VIOLATION_${Date.now()}`,
+        });
+      });
+      return {
+        success: false,
+        error: canAssign.message || 'Bạn không thể giao việc do chưa cấp quyền Google Drive.',
+      };
+    }
+
     if (!params.title.trim()) {
       return { success: false, error: 'Vui lòng nhập tiêu đề công việc.' };
     }
@@ -758,6 +1139,10 @@ class DataService {
     const taskId = 'TASK-' + Math.floor(100 + Math.random() * 900);
     const nowIso = new Date().toISOString();
 
+    const safeAssignerSlug = actor.email.replace(/[^a-zA-Z0-9]/g, '_');
+    const driveFolderId = `drive_folder_${safeAssignerSlug}_${taskId.toLowerCase()}`;
+    const driveFolderUrl = `https://drive.google.com/drive/folders/${driveFolderId}`;
+
     // Invariant: Exactly ONE assigner (the authenticated creator), 1+ assignees
     const newTask: Task = {
       taskId,
@@ -770,6 +1155,10 @@ class DataService {
       status: 'IN_PROGRESS',
       deadline: params.deadline,
       progressSummary: 0,
+      driveFolderId,
+      driveFolderUrl,
+      driveOwnerEmail: actor.email,
+      driveSyncedAt: nowIso,
       createdBy: actor.uid,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -777,6 +1166,15 @@ class DataService {
     };
 
     this.tasks.push(newTask);
+
+    // Sync task metadata to Google Drive of the assigner
+    const project = this.getProjectById(params.projectId);
+    if (project) {
+      const assignees = params.assigneeIds.map((id) => this.getUserById(id)).filter(Boolean) as User[];
+      driveService.syncTaskMetadataToDrive(actor, project, newTask, assignees).catch((err) => {
+        console.warn('Drive sync error:', err);
+      });
+    }
 
     // Initialize individual assignments for each assignee
     newTask.assigneeIds.forEach((uid) => {
@@ -1294,7 +1692,13 @@ class DataService {
     return this.files.filter((f) => f.taskId === taskId && !f.deleted);
   }
 
-  public uploadFile(taskId: string, name: string, mimeType: string, size: number): { success: boolean; file?: TaskFile; error?: string } {
+  public uploadFile(
+    taskId: string,
+    name: string,
+    mimeType: string,
+    size: number,
+    dataUrl?: string
+  ): { success: boolean; file?: TaskFile; error?: string } {
     const actor = this.getCurrentUser();
     if (actor.status !== 'ACTIVE') {
       return { success: false, error: 'Tài khoản chưa được kích hoạt.' };
@@ -1325,6 +1729,7 @@ class DataService {
       driveOwnerId: task.assignerId, // Business requirement: stored in assigner's Google Drive space
       driveOwnerEmail,
       drivePath,
+      dataUrl,
       createdAt: new Date().toISOString(),
       deleted: false,
     };
