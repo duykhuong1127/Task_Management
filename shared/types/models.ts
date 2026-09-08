@@ -3,20 +3,14 @@ export type UserStatus = 'INVITED' | 'ACTIVE' | 'DISABLED' | 'PENDING_APPROVAL';
 
 export interface User {
   uid: string;
+  googleUid?: string;
   email: string;
   normalizedEmail: string;
   displayName: string;
   photoURL?: string;
   role: UserRole;
   status: UserStatus;
-  password?: string;
-  driveAccessStatus?: 'GRANTED' | 'DENIED' | 'NOT_PROMPTED';
-  driveAccessGrantedAt?: string;
-  driveAccessDeniedAt?: string;
-  driveAccessToken?: string;
-  driveRootFolderId?: string;
-  driveRootFolderName?: string;
-  canAssignTasks?: boolean;
+  provider?: 'google';
   createdAt: string;
   activatedAt?: string;
   disabledAt?: string;

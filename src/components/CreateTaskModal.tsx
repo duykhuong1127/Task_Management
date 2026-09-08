@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Project, User, TaskPriority } from '@shared/types/models';
 import { dataService } from '../services/dataService';
-import { GoogleDriveConsentModal } from './GoogleDriveConsentModal';
-import { X, Calendar, Flag, Users, FolderKanban, Check, HardDrive, ShieldAlert, Lock, ArrowRight } from 'lucide-react';
+import { X, Calendar, Flag, Users, FolderKanban, Check } from 'lucide-react';
 
 interface CreateTaskModalProps {
   currentUser: User;
@@ -22,7 +21,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   const [description, setDescription] = useState('');
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority>('NORMAL');
-  const [showConsentModal, setShowConsentModal] = useState(false);
   
   // Default deadline: 48 hours from now in Vietnam time format YYYY-MM-DDTHH:mm
   const defaultDeadline = new Date(Date.now() + 48 * 3600 * 1000).toISOString().slice(0, 16);
@@ -34,9 +32,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
     if (!projectId) return false;
     return dataService.isUserInProject(projectId, u.uid);
   });
-
-  const isDriveDenied = currentUser.driveAccessStatus === 'DENIED';
-  const isDriveGranted = currentUser.driveAccessStatus === 'GRANTED';
 
   const handleProjectChange = (newProjectId: string) => {
     setProjectId(newProjectId);
@@ -56,11 +51,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (isDriveDenied) {
-      alert('Quyền giao việc của bạn đang bị khóa do chưa cấp quyền Google Drive! Quản trị viên đã được thông báo.');
-      return;
-    }
 
     if (!title.trim()) {
       alert('Vui lòng nhập tiêu đề công việc!');
@@ -140,39 +130,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             <span>Người giao việc (Assigner):</span>
             <strong className="text-white font-medium">{currentUser.displayName} ({currentUser.email})</strong>
           </div>
-
-          {/* Google Drive Requirement Notice */}
-          {isDriveDenied ? (
-            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-800/60 space-y-2">
-              <div className="flex items-center gap-2 text-rose-300 text-xs font-semibold">
-                <Lock className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>Quyền giao việc đang bị khóa (Chưa cấp quyền Google Drive)</span>
-              </div>
-              <p className="text-[11px] text-rose-200/80 leading-relaxed">
-                Dữ liệu công việc bắt buộc phải được lưu vào Google Drive của người giao việc. Bạn đã từ chối quyền này nên không thể giao việc. Quản trị viên (Admin) đã nhận được thông báo.
-              </p>
-              <button
-                type="button"
-                id="btn-re-grant-drive-create-modal"
-                onClick={() => setShowConsentModal(true)}
-                className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition-all shadow cursor-pointer"
-              >
-                <HardDrive className="w-3.5 h-3.5" />
-                <span>Cấp quyền Google Drive ngay để mở khóa</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-800/30 text-[11px] text-emerald-300 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <HardDrive className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Dữ liệu sẽ tự động lưu vào Google Drive: <strong className="text-white">{currentUser.email}</strong></span>
-              </div>
-              <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-mono">
-                Đã kết nối
-              </span>
-            </div>
-          )}
 
           {/* Project Selection */}
           <div className="space-y-1.5">
@@ -317,8 +274,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             <button
               id="btn-create-task-submit"
               type="submit"
-              disabled={isDriveDenied}
-              className="px-5 py-2 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black text-xs font-bold uppercase tracking-wider shadow transition-all"
             >
               Tạo Công Việc
             </button>
@@ -326,18 +282,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
         </form>
         )}
 
-        {showConsentModal && (
-          <GoogleDriveConsentModal
-            user={currentUser}
-            isOpen={showConsentModal}
-            onClose={() => setShowConsentModal(false)}
-            onDecisionComplete={(granted) => {
-              if (granted) {
-                setShowConsentModal(false);
-              }
-            }}
-          />
-        )}
       </div>
     </div>
   );

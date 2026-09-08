@@ -95,15 +95,18 @@ describe('Business Logic & Security Authorization Scenarios', () => {
     expect(roleRes.success).toBe(false);
   });
 
-  it('registers new Gmail login as PENDING_APPROVAL and blocks project access until Admin approves', () => {
-    // 1. User logs in with Gmail for the first time
-    const loginRes = dataService.loginWithGoogle('newuser@gmail.com', 'Người Dùng Mới');
-    expect(loginRes.success).toBe(true);
-    expect(loginRes.isNewUser).toBe(true);
-    expect(loginRes.needsApproval).toBe(true);
-    expect(loginRes.user.status).toBe('PENDING_APPROVAL');
+  it('synchronizes a Firebase-verified Google profile without storing a password', () => {
+    const loginUser = dataService.syncAuthenticatedUser({
+      googleUid: 'google-new-user',
+      email: 'newuser@gmail.com',
+      displayName: 'Người Dùng Mới',
+      status: 'ACTIVE',
+    });
+    expect(loginUser.googleUid).toBe('google-new-user');
+    expect(loginUser.provider).toBe('google');
+    expect('password' in loginUser).toBe(false);
 
-    // 2. While pending approval, user has NO access to projects or tasks
+    // A new authenticated user has no project access until an admin grants membership.
     const projects = dataService.getProjects();
     expect(projects).toEqual([]);
     const tasks = dataService.getTasks();
@@ -111,11 +114,11 @@ describe('Business Logic & Security Authorization Scenarios', () => {
 
     // 3. Admin logs in and approves user with access to proj_alpha
     dataService.setCurrentUser('user_admin');
-    const approveRes = dataService.approveUserAndGrantProjects(loginRes.user.uid, ['proj_alpha'], 'MEMBER');
+    const approveRes = dataService.approveUserAndGrantProjects(loginUser.uid, ['proj_alpha'], 'MEMBER');
     expect(approveRes.success).toBe(true);
 
     // 4. Now the approved user logs back in and has access to proj_alpha
-    dataService.setCurrentUser(loginRes.user.uid);
+    dataService.setCurrentUser(loginUser.uid);
     const updatedUser = dataService.getCurrentUser();
     expect(updatedUser.status).toBe('ACTIVE');
     const userProjects = dataService.getProjects();

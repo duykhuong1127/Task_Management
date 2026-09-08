@@ -21,8 +21,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   KeyRound,
-  Lock,
-  X,
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -35,9 +33,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
   const [inviteName, setInviteName] = useState('');
   const [auditFilterAction, setAuditFilterAction] = useState<string>('ALL');
   const [userToApprove, setUserToApprove] = useState<User | null>(null);
-  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
-  const [newPasswordInput, setNewPasswordInput] = useState('123456');
-  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   const users = dataService.getUsers();
   const auditLogs = dataService.getAuditLogs();
@@ -251,18 +246,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                       <span>Cấp Quyền Dự Án</span>
                     </button>
                     <button
-                      onClick={() => {
-                        setUserToResetPassword(u);
-                        setNewPasswordInput('123456');
-                        setResetMsg(null);
-                      }}
-                      className="px-2.5 py-1 rounded bg-[#181818] hover:bg-[#222] border border-[#333] text-[11px] text-[#D4AF37] hover:text-white transition-all flex items-center gap-1"
-                      title="Đặt lại mật khẩu cho tài khoản này"
-                    >
-                      <Lock className="w-3 h-3 text-[#D4AF37]" />
-                      <span>Đổi mật khẩu</span>
-                    </button>
-                    <button
                       onClick={() => handleChangeRole(u.uid, u.role)}
                       className="px-2.5 py-1 rounded bg-[#181818] hover:bg-[#222] border border-[#333] text-[11px] text-[#ccc] hover:text-white transition-all"
                     >
@@ -396,91 +379,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
         />
       )}
 
-      {/* Admin Reset User Password Modal */}
-      {userToResetPassword && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-sm bg-[#0F0F0F] border border-[#2E2E2E] rounded-xl shadow-2xl p-6 text-[#D1D1D1]">
-            <button
-              onClick={() => setUserToResetPassword(null)}
-              className="absolute top-4 right-4 p-1 text-[#666] hover:text-white transition-colors"
-              title="Đóng"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 rounded-lg bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/30">
-                <KeyRound className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-white">Đặt lại mật khẩu</h3>
-                <p className="text-[11px] text-[#777]">Cấp mật khẩu mới cho nhân viên</p>
-              </div>
-            </div>
-
-            <div className="p-3 mb-4 rounded bg-[#161616] border border-[#262626] text-xs">
-              <div className="font-medium text-white">{userToResetPassword.displayName}</div>
-              <div className="text-[11px] text-[#888] font-mono">{userToResetPassword.email}</div>
-            </div>
-
-            {resetMsg && (
-              <div className="mb-4 p-2.5 rounded bg-emerald-950/40 border border-emerald-800/60 text-emerald-200 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{resetMsg}</span>
-              </div>
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!newPasswordInput || newPasswordInput.length < 6) {
-                  alert('Mật khẩu mới phải có tối thiểu 6 ký tự.');
-                  return;
-                }
-                const res = dataService.adminResetPassword(userToResetPassword.uid, newPasswordInput);
-                if (res.success) {
-                  setResetMsg(`Đã đặt lại mật khẩu mới thành công: ${newPasswordInput}`);
-                  setTimeout(() => {
-                    setUserToResetPassword(null);
-                    setResetMsg(null);
-                  }, 1800);
-                } else {
-                  alert(res.error || 'Có lỗi xảy ra.');
-                }
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-[11px] text-[#888] mb-1">Mật khẩu mới (tối thiểu 6 ký tự)</label>
-                <input
-                  type="text"
-                  required
-                  value={newPasswordInput}
-                  onChange={(e) => setNewPasswordInput(e.target.value)}
-                  placeholder="Nhập mật khẩu mới..."
-                  className="w-full px-3 py-2 text-xs bg-[#161616] border border-[#2E2E2E] rounded text-white focus:border-[#D4AF37] focus:outline-none transition-colors font-mono"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="submit"
-                  className="flex-1 py-2 px-4 rounded bg-[#D4AF37] hover:bg-[#c49f2e] text-black font-semibold text-xs transition-all shadow"
-                >
-                  Xác nhận đặt lại
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUserToResetPassword(null)}
-                  className="px-3 py-2 rounded bg-[#161616] hover:bg-[#222] border border-[#333] text-[#AAA] hover:text-white text-xs transition-all"
-                >
-                  Hủy
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

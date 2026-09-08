@@ -26,13 +26,29 @@ service cloud.firestore {
     
     // User profiles & allowlist
     match /users/{userId} {
-      // Anyone authenticated can read user profiles to render names/avatars
-      allow read: if isAuthenticated();
-      // Only Admin can create or update user roles & statuses
-      allow create, update: if isAdmin();
-      // Self-update allowed only for displayName and photoURL, never role or status
-      allow update: if isAuthenticated() && request.auth.uid == userId 
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'normalizedEmail']);
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+
+      // First Google sign-in creates a least-privilege profile for the authenticated UID.
+      allow create: if isAuthenticated()
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.googleUid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.auth.token.email_verified == true
+        && request.resource.data.provider == 'google'
+        && request.resource.data.role == 'MEMBER'
+        && request.resource.data.status == 'ACTIVE';
+
+      // Users may refresh only their Google profile and login timestamps.
+      allow update: if isAdmin() || (
+        isAuthenticated()
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'normalizedEmail', 'displayName', 'photoURL', 'provider', 'lastLoginAt', 'updatedAt'
+        ])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.provider == 'google'
+      );
       allow delete: if false; // Soft delete only
     }
     
