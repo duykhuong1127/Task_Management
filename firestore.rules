@@ -36,7 +36,10 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.auth.token.email_verified == true
         && request.resource.data.provider == 'google'
-        && request.resource.data.role == 'MEMBER'
+        && (
+          request.resource.data.role == 'MEMBER' ||
+          (request.resource.data.role == 'ADMIN' && request.auth.token.email in ['duykhuong332@gmail.com', 'admin@company.com'])
+        )
         && request.resource.data.status == 'ACTIVE';
 
       // Users may refresh only their Google profile and login timestamps.

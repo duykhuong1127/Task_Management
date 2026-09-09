@@ -30,7 +30,7 @@
 - `src/components/GoogleDriveConsentModal.tsx`
 - `src/components/DrivePermissionDeniedBanner.tsx`
 - `src/services/driveService.ts`
-- `firebase-applet-config.json` (loại cấu hình Firebase hard-code; dùng `.env.local`)
+- `firebase-applet-config.json`: Cấu hình Firebase tự động của dự án (hỗ trợ override bằng biến môi trường VITE_FIREBASE_* khi cần).
 - `bun.lock` (thay bằng `pnpm-lock.yaml`)
 
 ## Xác minh

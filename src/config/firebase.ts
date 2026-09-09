@@ -3,28 +3,40 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { APP_REGION, BUSINESS_TIMEZONE } from '@shared/constants/regions';
+import appletConfig from '../../firebase-applet-config.json';
 
-// Firebase configuration loaded from environment
+// Firebase configuration loaded directly from platform applet config (firebase-applet-config.json)
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-api-key',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'task-management-sg.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'task-management-sg',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'task-management-sg.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '217631329737',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:217631329737:web:sg-prod-app',
+  apiKey: appletConfig.apiKey,
+  authDomain: appletConfig.authDomain,
+  projectId: appletConfig.projectId,
+  storageBucket: appletConfig.storageBucket,
+  messagingSenderId: appletConfig.messagingSenderId,
+  appId: appletConfig.appId,
 };
 
 export const isFirebaseConfigured = Boolean(
-  import.meta.env.VITE_FIREBASE_API_KEY &&
-  import.meta.env.VITE_FIREBASE_AUTH_DOMAIN &&
-  import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-  import.meta.env.VITE_FIREBASE_APP_ID &&
-  import.meta.env.VITE_FIREBASE_API_KEY !== 'demo-api-key'
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.apiKey !== 'demo-api-key' &&
+  !firebaseConfig.projectId.includes('placeholder')
 );
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);
+
+// Standard Google authentication parameters: force account selection
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
+// Use the provisioned Firestore database ID if available
+export const db =
+  appletConfig.firestoreDatabaseId && appletConfig.firestoreDatabaseId !== '(default)'
+    ? getFirestore(app, appletConfig.firestoreDatabaseId)
+    : getFirestore(app);
 
 export { app, APP_REGION, BUSINESS_TIMEZONE };
+

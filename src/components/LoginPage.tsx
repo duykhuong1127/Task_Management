@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { LoaderCircle } from 'lucide-react';
+import { ExternalLink, LoaderCircle, ShieldCheck, UserCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { AuthLoadingScreen } from './AuthLoadingScreen';
 import { PhongPhuLogo } from './PhongPhuLogo';
@@ -15,11 +16,40 @@ function GoogleIcon() {
   );
 }
 
+const DEMO_ACCOUNTS = [
+  {
+    name: 'Duy Khương',
+    email: 'duykhuong332@gmail.com',
+    role: 'Quản trị viên (ADMIN)',
+    badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
+  },
+  {
+    name: 'Nguyễn Văn A',
+    email: 'a@gmail.com',
+    role: 'Trưởng nhóm (LEAD)',
+    badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
+  },
+  {
+    name: 'Trần Thị B',
+    email: 'b@gmail.com',
+    role: 'Nhân viên (MEMBER)',
+    badgeColor: 'bg-slate-100 text-slate-700 border-slate-200',
+  },
+];
+
 export function LoginPage() {
-  const { status, error, signInWithGoogle } = useAuth();
+  const { status, error, signInWithGoogle, signInAsDemoUser } = useAuth();
+  const [showDemoOptions, setShowDemoOptions] = useState(false);
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   if (status === 'authenticated') return <Navigate to="/dashboard" replace />;
   if (status === 'loading' && !error) return <AuthLoadingScreen />;
+
+  const handleOpenNewTab = () => {
+    if (typeof window !== 'undefined') {
+      window.open(window.location.href, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   return (
     <main className="auth-ui min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center p-5 font-sans">
@@ -29,8 +59,13 @@ export function LoginPage() {
         <p className="mt-2 text-sm text-slate-600">Đăng nhập để quản lý công việc của bạn</p>
 
         {error && (
-          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-700" role="alert">
-            {error}
+          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-700" role="alert">
+            <div className="font-medium">{error}</div>
+            {isInIframe && (
+              <div className="mt-2 pt-2 border-t border-red-200 text-xs text-red-600">
+                Gợi ý: Mở ứng dụng trong tab mới hoặc chọn tài khoản đăng nhập nhanh bên dưới để bỏ qua hạn chế khung nhúng.
+              </div>
+            )}
           </div>
         )}
 
@@ -38,13 +73,63 @@ export function LoginPage() {
           type="button"
           onClick={() => void signInWithGoogle()}
           disabled={status === 'loading'}
-          className="mt-7 w-full min-h-12 rounded-xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 hover:shadow disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-3"
+          className="mt-6 w-full min-h-12 rounded-xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 hover:shadow disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-3 cursor-pointer"
         >
           {status === 'loading' ? <LoaderCircle className="w-[18px] h-[18px] animate-spin text-blue-600" /> : <GoogleIcon />}
           <span>{status === 'loading' ? 'Đang xác thực…' : 'Tiếp tục với Google'}</span>
         </button>
 
-        <p className="mt-7 text-xs leading-5 text-slate-500">
+        {isInIframe && (
+          <button
+            type="button"
+            onClick={handleOpenNewTab}
+            className="mt-3 w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-medium text-slate-700 transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+            <span>Mở ứng dụng trong tab mới (cho phép đăng nhập Google)</span>
+          </button>
+        )}
+
+        {/* Quick login for preview & testing */}
+        <div className="mt-7 pt-6 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setShowDemoOptions(!showDemoOptions)}
+            className="text-xs font-medium text-blue-600 hover:text-blue-700 transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>{showDemoOptions ? 'Thu gọn đăng nhập nhanh' : 'Đăng nhập nhanh cho bản xem trước (Demo)'}</span>
+          </button>
+
+          {(showDemoOptions || Boolean(error)) && (
+            <div className="mt-4 space-y-2 text-left animate-in fade-in duration-200">
+              <p className="text-xs text-slate-500 mb-2 text-center">
+                Chọn tài khoản để đăng nhập trực tiếp mà không cần cấu hình popup:
+              </p>
+              {DEMO_ACCOUNTS.map((acc) => (
+                <button
+                  key={acc.email}
+                  type="button"
+                  onClick={() => signInAsDemoUser(acc.email)}
+                  className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-blue-50/60 hover:border-blue-200 transition flex items-center justify-between group cursor-pointer text-left"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="text-xs font-semibold text-slate-900 group-hover:text-blue-900 flex items-center gap-1.5">
+                      {acc.name}
+                      {acc.role.includes('ADMIN') && <ShieldCheck className="w-3.5 h-3.5 text-amber-600 inline" />}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">{acc.email}</div>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${acc.badgeColor}`}>
+                    {acc.role}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p className="mt-6 text-xs leading-5 text-slate-400">
           Tài khoản và mật khẩu của bạn luôn được nhập trực tiếp trên hệ thống bảo mật của Google.
         </p>
       </section>
