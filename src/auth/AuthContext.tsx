@@ -12,7 +12,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { User, UserRole, UserStatus } from '@shared/types/models';
-import { auth, db, googleProvider, isFirebaseConfigured } from '../config/firebase';
+import { auth, db, googleProvider, isFirebaseConfigured, browserPopupRedirectResolver } from '../config/firebase';
 import { dataService } from '../services/dataService';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -225,7 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Ignore storage restriction and proceed to popup
         }
       }
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
     } catch (signInError: unknown) {
       console.warn('Firebase Google sign-in exception:', signInError);
       const errCode = (signInError as { code?: string })?.code || '';

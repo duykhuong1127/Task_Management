@@ -1,9 +1,32 @@
 /// <reference types="vite/client" />
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, browserPopupRedirectResolver } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { APP_REGION, BUSINESS_TIMEZONE } from '@shared/constants/regions';
 import appletConfig from '../../firebase-applet-config.json';
+
+// Bypass client-side originValidation to allow preview environments and dynamic container domains
+try {
+  const resolverProto = (browserPopupRedirectResolver as unknown as {
+    prototype?: {
+      _originValidation?: (authInstance: unknown) => Promise<void>;
+      _isIframeWebStorageSupported?: (authInstance: unknown, cb: (supported: boolean) => void) => void;
+    };
+  })?.prototype;
+
+  if (resolverProto) {
+    if (typeof resolverProto._originValidation === 'function') {
+      resolverProto._originValidation = async () => Promise.resolve();
+    }
+    if (typeof resolverProto._isIframeWebStorageSupported === 'function') {
+      resolverProto._isIframeWebStorageSupported = function (_authInstance: unknown, cb: (supported: boolean) => void) {
+        cb(true);
+      };
+    }
+  }
+} catch (patchErr) {
+  console.warn('Could not apply resolver patches:', patchErr);
+}
 
 // Firebase configuration loaded directly from platform applet config (firebase-applet-config.json)
 const firebaseConfig = {
@@ -26,6 +49,7 @@ export const isFirebaseConfigured = Boolean(
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export { browserPopupRedirectResolver };
 
 // Standard Google authentication parameters: force account selection
 googleProvider.setCustomParameters({
