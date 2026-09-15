@@ -80,10 +80,10 @@ export const SEED_USERS: User[] = [
     uid: 'user_e',
     email: 'e_external@gmail.com',
     normalizedEmail: 'e_external@gmail.com',
-    displayName: 'Người Dùng Ngoài E (Chưa cấp quyền)',
+    displayName: 'Người Dùng E (Chờ phê duyệt)',
     photoURL: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
     role: 'MEMBER',
-    status: 'INVITED',
+    status: 'PENDING_APPROVAL',
     createdAt: '2026-09-03T08:00:00.000Z',
     updatedAt: '2026-09-03T08:00:00.000Z',
   }

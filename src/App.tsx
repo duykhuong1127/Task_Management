@@ -20,6 +20,7 @@ import { TaskDetailsModal } from './components/TaskDetailsModal';
 import { CreateTaskModal } from './components/CreateTaskModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { LoginPage } from './components/LoginPage';
+import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 
 type MainTab = 'home' | 'tasks' | 'projects' | 'admin';
 
@@ -127,6 +128,18 @@ function WorkspaceApp() {
 
   if (location.pathname === '/admin' && currentUser.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
 
+  if (currentUser.status !== 'ACTIVE') {
+    return (
+      <PendingApprovalScreen
+        currentUser={currentUser}
+        onLogout={async () => {
+          await logout();
+          navigate('/login', { replace: true });
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-screen bg-[#070707] text-[#D1D1D1] overflow-hidden selection:bg-[#D4AF37]/30 selection:text-white">
       {!isOnline && (
@@ -156,44 +169,32 @@ function WorkspaceApp() {
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {currentUser.status !== 'ACTIVE' ? (
-          <main className="flex-1 grid place-items-center p-6">
-            <div className="max-w-md text-center rounded-xl border border-amber-800/50 bg-amber-950/20 p-7">
-              <h1 className="text-xl text-white">Tài khoản chưa thể truy cập</h1>
-              <p className="text-sm text-[#aaa] mt-2">Trạng thái hiện tại: {currentUser.status}. Vui lòng liên hệ quản trị viên.</p>
-              <button onClick={() => void logout()} className="mt-5 rounded-lg bg-white px-4 py-2 text-sm text-black">Đăng xuất</button>
-            </div>
-          </main>
-        ) : (
-          <>
-            <Navigation
-              currentTab={currentTab}
-              onSelectTab={(tab) => navigate(paths[tab])}
-              onOpenCreateTask={() => setShowCreateTask(true)}
-              onOpenNotifications={() => setShowNotifications(true)}
-              projects={projects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }}
-              currentUser={currentUser}
-              unreadCount={dataService.getUnreadNotificationCount()}
-            />
+        <Navigation
+          currentTab={currentTab}
+          onSelectTab={(tab) => navigate(paths[tab])}
+          onOpenCreateTask={() => setShowCreateTask(true)}
+          onOpenNotifications={() => setShowNotifications(true)}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }}
+          currentUser={currentUser}
+          unreadCount={dataService.getUnreadNotificationCount()}
+        />
 
-            <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 max-w-7xl mx-auto w-full">
-              {location.pathname === '/dashboard' && (
-                <HomeDashboard currentUser={currentUser} tasks={tasks} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} onViewAllTasks={() => { setSelectedProjectId(undefined); navigate('/tasks'); }} />
-              )}
-              {location.pathname.startsWith('/tasks') && (
-                <TasksView tasks={tasks} currentUser={currentUser} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} selectedProjectId={selectedProjectId} />
-              )}
-              {location.pathname.startsWith('/projects') && (
-                <ProjectsView projects={projects} tasks={tasks} currentUser={currentUser} onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }} onRefresh={() => setProjects([...dataService.getProjects()])} />
-              )}
-              {location.pathname === '/calendar' && <PlaceholderPage title="Lịch" description="Route lịch đã được bảo vệ và sẵn sàng tích hợp Google Calendar bằng scope riêng khi người dùng sử dụng tính năng." />}
-              {location.pathname === '/settings' && <AccountPage user={currentUser} />}
-              {location.pathname === '/admin' && <AdminView currentUser={currentUser} />}
-            </main>
-          </>
-        )}
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 max-w-7xl mx-auto w-full">
+          {location.pathname === '/dashboard' && (
+            <HomeDashboard currentUser={currentUser} tasks={tasks} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} onViewAllTasks={() => { setSelectedProjectId(undefined); navigate('/tasks'); }} />
+          )}
+          {location.pathname.startsWith('/tasks') && (
+            <TasksView tasks={tasks} currentUser={currentUser} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} selectedProjectId={selectedProjectId} />
+          )}
+          {location.pathname.startsWith('/projects') && (
+            <ProjectsView projects={projects} tasks={tasks} currentUser={currentUser} onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }} onRefresh={() => setProjects([...dataService.getProjects()])} />
+          )}
+          {location.pathname === '/calendar' && <PlaceholderPage title="Lịch" description="Route lịch đã được bảo vệ và sẵn sàng tích hợp Google Calendar bằng scope riêng khi người dùng sử dụng tính năng." />}
+          {location.pathname === '/settings' && <AccountPage user={currentUser} />}
+          {location.pathname === '/admin' && <AdminView currentUser={currentUser} />}
+        </main>
       </div>
 
       {selectedTask && <TaskDetailsModal task={selectedTask} currentUser={currentUser} onClose={() => setSelectedTask(null)} />}

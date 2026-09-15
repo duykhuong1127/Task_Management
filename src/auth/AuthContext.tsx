@@ -23,7 +23,9 @@ interface AuthContextValue {
   user: User | null;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, displayName?: string) => Promise<User>;
   signInAsDemoUser: (email: string) => void;
+  refreshUser: () => Promise<User | null>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
@@ -75,8 +77,12 @@ function validRole(value: unknown, isDesignatedAdmin: boolean): UserRole {
   return value === 'ADMIN' ? 'ADMIN' : 'MEMBER';
 }
 
-function validStatus(value: unknown): UserStatus {
-  return value === 'DISABLED' || value === 'INVITED' || value === 'PENDING_APPROVAL' ? value : 'ACTIVE';
+function validStatus(value: unknown, isDesignatedAdmin: boolean): UserStatus {
+  if (isDesignatedAdmin) return 'ACTIVE';
+  if (value === 'DISABLED' || value === 'INVITED' || value === 'PENDING_APPROVAL' || value === 'ACTIVE') {
+    return value as UserStatus;
+  }
+  return 'PENDING_APPROVAL';
 }
 
 const DESIGNATED_ADMIN_EMAILS = ['duykhuong332@gmail.com', 'admin@company.com'];
@@ -86,6 +92,7 @@ async function syncUserProfile(firebaseUser: FirebaseUser): Promise<User> {
 
   const isDesignatedAdmin = DESIGNATED_ADMIN_EMAILS.includes(firebaseUser.email.toLowerCase());
   const initialRole: UserRole = isDesignatedAdmin ? 'ADMIN' : 'MEMBER';
+  const initialStatus: UserStatus = isDesignatedAdmin ? 'ACTIVE' : 'PENDING_APPROVAL';
 
   const profileRef = doc(db, 'users', firebaseUser.uid);
   const now = new Date().toISOString();
@@ -109,7 +116,7 @@ async function syncUserProfile(firebaseUser: FirebaseUser): Promise<User> {
           photoURL: firebaseUser.photoURL || null,
           provider: 'google',
           role: isDesignatedAdmin ? 'ADMIN' : validRole(existing.role, false),
-          status: validStatus(existing.status),
+          status: validStatus(existing.status, isDesignatedAdmin),
           lastLoginAt: now,
           updatedAt: now,
         },
@@ -125,7 +132,7 @@ async function syncUserProfile(firebaseUser: FirebaseUser): Promise<User> {
         photoURL: firebaseUser.photoURL || null,
         provider: 'google',
         role: initialRole,
-        status: 'ACTIVE',
+        status: initialStatus,
         createdAt: now,
         lastLoginAt: now,
         updatedAt: now,
@@ -141,7 +148,7 @@ async function syncUserProfile(firebaseUser: FirebaseUser): Promise<User> {
     displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
     photoURL: firebaseUser.photoURL || undefined,
     role: validRole(existing?.role, isDesignatedAdmin),
-    status: validStatus(existing?.status),
+    status: existing ? validStatus(existing.status, isDesignatedAdmin) : initialStatus,
     createdAt: typeof existing?.createdAt === 'string' ? existing.createdAt : now,
     lastLoginAt: now,
   });
@@ -248,19 +255,93 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const signInWithEmail = useCallback(async (email: string, displayName?: string): Promise<User> => {
+    setError(null);
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) {
+      const msg = 'Vui lòng nhập địa chỉ email hợp lệ.';
+      setError(msg);
+      throw new Error(msg);
+    }
+
+    const authenticatedUser = dataService.registerOrLoginUser(normalized, displayName);
+    setUser({ ...authenticatedUser });
+    setStatus('authenticated');
+
+    if (isFirebaseConfigured) {
+      try {
+        const profileRef = doc(db, 'users', authenticatedUser.uid);
+        await setDoc(
+          profileRef,
+          {
+            uid: authenticatedUser.uid,
+            googleUid: authenticatedUser.uid,
+            email: authenticatedUser.email,
+            normalizedEmail: normalized,
+            displayName: authenticatedUser.displayName,
+            role: authenticatedUser.role,
+            status: authenticatedUser.status,
+            lastLoginAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Could not sync email user to firestore:', err);
+      }
+    }
+
+    return authenticatedUser;
+  }, []);
+
+  const refreshUser = useCallback(async (): Promise<User | null> => {
+    if (!user) return null;
+
+    try {
+      if (isFirebaseConfigured && user.uid) {
+        const profileRef = doc(db, 'users', user.uid);
+        const snapshot = await getDoc(profileRef);
+        if (snapshot.exists()) {
+          const remote = snapshot.data();
+          const isDesignatedAdmin = DESIGNATED_ADMIN_EMAILS.includes(user.email.toLowerCase());
+          const updatedUser = dataService.syncAuthenticatedUser({
+            googleUid: user.uid,
+            email: user.email,
+            displayName: (remote.displayName as string) || user.displayName,
+            photoURL: (remote.photoURL as string) || user.photoURL,
+            role: validRole(remote.role, isDesignatedAdmin),
+            status: validStatus(remote.status, isDesignatedAdmin),
+            createdAt: user.createdAt,
+          });
+          setUser({ ...updatedUser });
+          return updatedUser;
+        }
+      }
+    } catch (readErr) {
+      console.warn('Could not read user profile from Firestore during refresh:', readErr);
+    }
+
+    const local = dataService.getUserById(user.uid) || dataService.getUserByEmail(user.email);
+    if (local) {
+      setUser({ ...local });
+      return local;
+    }
+    return user;
+  }, [user]);
+
   const signInAsDemoUser = useCallback((email: string) => {
     setError(null);
-    const users = dataService.getUsers();
-    const targetUser = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() || u.normalizedEmail.toLowerCase() === email.toLowerCase()
-    );
-    if (!targetUser) {
-      setError(`Không tìm thấy hồ sơ người dùng với email: ${email}`);
-      return;
+    const normalized = email.trim().toLowerCase();
+    const existing = dataService.getUserByEmail(normalized);
+    if (existing) {
+      dataService.setCurrentUser(existing.uid);
+      setUser({ ...existing });
+      setStatus('authenticated');
+    } else {
+      const newUser = dataService.registerOrLoginUser(normalized);
+      setUser({ ...newUser });
+      setStatus('authenticated');
     }
-    dataService.setCurrentUser(targetUser.uid);
-    setUser(targetUser);
-    setStatus('authenticated');
   }, []);
 
   const logout = useCallback(async () => {
@@ -283,11 +364,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       error,
       signInWithGoogle,
+      signInWithEmail,
       signInAsDemoUser,
+      refreshUser,
       logout,
       clearError: () => setError(null),
     }),
-    [status, firebaseUser, user, error, signInWithGoogle, signInAsDemoUser, logout]
+    [status, firebaseUser, user, error, signInWithGoogle, signInWithEmail, signInAsDemoUser, refreshUser, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

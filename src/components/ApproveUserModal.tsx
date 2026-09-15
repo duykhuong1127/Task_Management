@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { User, Project, UserRole } from '@shared/types/models';
 import { dataService } from '../services/dataService';
+import { db, isFirebaseConfigured } from '../config/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { ShieldCheck, FolderKanban, Check, X, AlertCircle } from 'lucide-react';
 
 interface ApproveUserModalProps {
@@ -47,7 +49,7 @@ export const ApproveUserModal: React.FC<ApproveUserModalProps> = ({
     }
   };
 
-  const handleApprove = (e: React.FormEvent) => {
+  const handleApprove = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -58,6 +60,24 @@ export const ApproveUserModal: React.FC<ApproveUserModalProps> = ({
       selectedRole,
       userName.trim()
     );
+
+    if (isFirebaseConfigured && user.uid) {
+      try {
+        const profileRef = doc(db, 'users', user.uid);
+        await setDoc(
+          profileRef,
+          {
+            status: 'ACTIVE',
+            role: selectedRole,
+            displayName: userName.trim(),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Could not sync approved status to Firestore:', err);
+      }
+    }
 
     setLoading(false);
     if (!res.success) {
