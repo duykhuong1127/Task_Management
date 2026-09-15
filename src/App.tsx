@@ -9,14 +9,16 @@ import { Download, WifiOff, X } from 'lucide-react';
 import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { dataService } from './services/dataService';
+import { productionSyncService } from './services/productionSyncService';
 import { Task, Project, User } from '@shared/types/models';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
 import { HomeDashboard } from './components/HomeDashboard';
-import { TasksView } from './components/TasksView';
+import { MultiViewTasks } from './components/MultiViewTasks';
+import { CalendarTasksView } from './components/CalendarTasksView';
 import { ProjectsView } from './components/ProjectsView';
 import { AdminView } from './components/AdminView';
-import { TaskDetailsModal } from './components/TaskDetailsModal';
+import { TaskDetailsModalV2 } from './components/TaskDetailsModalV2';
 import { CreateTaskModal } from './components/CreateTaskModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { LoginPage } from './components/LoginPage';
@@ -25,7 +27,7 @@ import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 type MainTab = 'home' | 'tasks' | 'projects' | 'admin';
 
 function tabForPath(pathname: string): MainTab {
-  if (pathname.startsWith('/tasks')) return 'tasks';
+  if (pathname.startsWith('/tasks') || pathname === '/calendar') return 'tasks';
   if (pathname.startsWith('/projects')) return 'projects';
   if (pathname.startsWith('/admin')) return 'admin';
   return 'home';
@@ -63,15 +65,6 @@ function AccountPage({ user }: { user: User }) {
   );
 }
 
-function PlaceholderPage({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="max-w-2xl rounded-xl border border-[#292929] bg-[#101010] p-7">
-      <h1 className="text-2xl text-white">{title}</h1>
-      <p className="text-sm text-[#888] mt-2">{description}</p>
-    </div>
-  );
-}
-
 function WorkspaceApp() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -92,20 +85,36 @@ function WorkspaceApp() {
     if (user) setCurrentUser(user);
   }, [user]);
 
-  useEffect(() => dataService.subscribe(() => {
-    const nextUser = dataService.getSessionUser();
-    if (nextUser) setCurrentUser(nextUser);
-    setTasks([...dataService.getTasks()]);
-    setProjects([...dataService.getProjects()]);
-    setSelectedTask((openTask) => (openTask ? dataService.getTaskById(openTask.taskId) || null : null));
-  }), []);
+  // Firestore is the production source of truth. The adapter hydrates the
+  // existing synchronous DataService cache and writes local business actions
+  // back to Firestore so all signed-in users observe changes in real time.
+  useEffect(() => {
+    if (currentUser.status !== 'ACTIVE') return undefined;
+    return productionSyncService.connect(currentUser);
+  }, [currentUser.uid, currentUser.role, currentUser.status]);
+
+  useEffect(() =>
+    dataService.subscribe(() => {
+      const nextUser = dataService.getSessionUser();
+      if (nextUser) setCurrentUser(nextUser);
+      setTasks([...dataService.getTasks()]);
+      setProjects([...dataService.getProjects()]);
+      setSelectedTask((openTask) => (openTask ? dataService.getTaskById(openTask.taskId) || null : null));
+    }),
+  []);
 
   useEffect(() => {
-    if (selectedProjectId && !dataService.isUserInProject(selectedProjectId, currentUser.uid)) setSelectedProjectId(undefined);
+    if (selectedProjectId && !dataService.isUserInProject(selectedProjectId, currentUser.uid)) {
+      setSelectedProjectId(undefined);
+    }
   }, [currentUser.uid, selectedProjectId, projects]);
 
   useEffect(() => {
-    const handleInstall = (event: Event) => { event.preventDefault(); setDeferredPrompt(event); setShowInstallBanner(true); };
+    const handleInstall = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event);
+      setShowInstallBanner(true);
+    };
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('beforeinstallprompt', handleInstall);
@@ -126,13 +135,16 @@ function WorkspaceApp() {
     setDeferredPrompt(null);
   };
 
-  if (location.pathname === '/admin' && currentUser.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
+  if (location.pathname === '/admin' && currentUser.role !== 'ADMIN') {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   if (currentUser.status !== 'ACTIVE') {
     return (
       <PendingApprovalScreen
         currentUser={currentUser}
         onLogout={async () => {
+          productionSyncService.disconnect();
           await logout();
           navigate('/login', { replace: true });
         }}
@@ -140,12 +152,20 @@ function WorkspaceApp() {
     );
   }
 
+  const taskViewProps = {
+    tasks,
+    currentUser,
+    onSelectTask: setSelectedTask,
+    onOpenCreateTask: () => setShowCreateTask(true),
+    selectedProjectId,
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-[#070707] text-[#D1D1D1] overflow-hidden selection:bg-[#D4AF37]/30 selection:text-white">
       {!isOnline && (
         <div className="bg-amber-950/80 border-b border-amber-700/50 text-amber-200 px-4 py-1.5 text-xs flex items-center justify-center gap-2">
           <WifiOff className="w-3.5 h-3.5" />
-          <span>Bạn đang ngoại tuyến. Các thao tác yêu cầu xác thực hoặc đồng bộ sẽ tiếp tục khi có mạng.</span>
+          <span>Bạn đang ngoại tuyến. Firestore sẽ xếp hàng thay đổi cục bộ và đồng bộ lại khi có mạng.</span>
         </div>
       )}
 
@@ -153,8 +173,12 @@ function WorkspaceApp() {
         <div className="bg-[#111] border-b border-[#D4AF37]/40 px-4 py-2 flex items-center justify-between text-xs text-white z-50">
           <span>Cài ứng dụng Quản lý Công việc vào màn hình chính.</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => void handleInstallPWA()} className="px-3 py-1 rounded bg-[#D4AF37] text-black font-bold flex items-center gap-1"><Download className="w-3 h-3" /> Cài đặt</button>
-            <button onClick={() => setShowInstallBanner(false)} aria-label="Đóng"><X className="w-4 h-4" /></button>
+            <button onClick={() => void handleInstallPWA()} className="px-3 py-1 rounded bg-[#D4AF37] text-black font-bold flex items-center gap-1">
+              <Download className="w-3 h-3" /> Cài đặt
+            </button>
+            <button onClick={() => setShowInstallBanner(false)} aria-label="Đóng">
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
@@ -165,7 +189,11 @@ function WorkspaceApp() {
         onOpenNotifications={() => setShowNotifications(true)}
         onOpenAdmin={() => navigate('/admin')}
         onOpenSettings={() => navigate('/settings')}
-        onLogout={async () => { await logout(); navigate('/login', { replace: true }); }}
+        onLogout={async () => {
+          productionSyncService.disconnect();
+          await logout();
+          navigate('/login', { replace: true });
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -176,33 +204,75 @@ function WorkspaceApp() {
           onOpenNotifications={() => setShowNotifications(true)}
           projects={projects}
           selectedProjectId={selectedProjectId}
-          onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }}
+          onSelectProject={(projectId) => {
+            setSelectedProjectId(projectId);
+            navigate('/tasks');
+          }}
           currentUser={currentUser}
           unreadCount={dataService.getUnreadNotificationCount()}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 max-w-[1600px] mx-auto w-full">
           {location.pathname === '/dashboard' && (
-            <HomeDashboard currentUser={currentUser} tasks={tasks} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} onViewAllTasks={() => { setSelectedProjectId(undefined); navigate('/tasks'); }} />
+            <HomeDashboard
+              currentUser={currentUser}
+              tasks={tasks}
+              onSelectTask={setSelectedTask}
+              onOpenCreateTask={() => setShowCreateTask(true)}
+              onViewAllTasks={() => {
+                setSelectedProjectId(undefined);
+                navigate('/tasks');
+              }}
+            />
           )}
-          {location.pathname.startsWith('/tasks') && (
-            <TasksView tasks={tasks} currentUser={currentUser} onSelectTask={setSelectedTask} onOpenCreateTask={() => setShowCreateTask(true)} selectedProjectId={selectedProjectId} />
-          )}
+
+          {location.pathname.startsWith('/tasks') && <MultiViewTasks {...taskViewProps} />}
+          {location.pathname === '/calendar' && <CalendarTasksView {...taskViewProps} />}
+
           {location.pathname.startsWith('/projects') && (
-            <ProjectsView projects={projects} tasks={tasks} currentUser={currentUser} onSelectProject={(projectId) => { setSelectedProjectId(projectId); navigate('/tasks'); }} onRefresh={() => setProjects([...dataService.getProjects()])} />
+            <ProjectsView
+              projects={projects}
+              tasks={tasks}
+              currentUser={currentUser}
+              onSelectProject={(projectId) => {
+                setSelectedProjectId(projectId);
+                navigate('/tasks');
+              }}
+              onRefresh={() => setProjects([...dataService.getProjects()])}
+            />
           )}
-          {location.pathname === '/calendar' && <PlaceholderPage title="Lịch" description="Route lịch đã được bảo vệ và sẵn sàng tích hợp Google Calendar bằng scope riêng khi người dùng sử dụng tính năng." />}
+
           {location.pathname === '/settings' && <AccountPage user={currentUser} />}
           {location.pathname === '/admin' && <AdminView currentUser={currentUser} />}
         </main>
       </div>
 
-      {selectedTask && <TaskDetailsModal task={selectedTask} currentUser={currentUser} onClose={() => setSelectedTask(null)} />}
-      {showCreateTask && (
-        <CreateTaskModal currentUser={currentUser} projects={projects} onClose={() => setShowCreateTask(false)} onSuccess={() => { setTasks([...dataService.getTasks()]); setShowCreateTask(false); navigate('/tasks'); }} />
+      {selectedTask && (
+        <TaskDetailsModalV2 task={selectedTask} currentUser={currentUser} onClose={() => setSelectedTask(null)} />
       )}
+
+      {showCreateTask && (
+        <CreateTaskModal
+          currentUser={currentUser}
+          projects={projects}
+          onClose={() => setShowCreateTask(false)}
+          onSuccess={() => {
+            setTasks([...dataService.getTasks()]);
+            setShowCreateTask(false);
+            navigate('/tasks');
+          }}
+        />
+      )}
+
       {showNotifications && (
-        <NotificationsModal currentUser={currentUser} onClose={() => setShowNotifications(false)} onSelectTaskById={(taskId) => { const task = dataService.getTaskById(taskId); if (task) setSelectedTask(task); }} />
+        <NotificationsModal
+          currentUser={currentUser}
+          onClose={() => setShowNotifications(false)}
+          onSelectTaskById={(taskId) => {
+            const task = dataService.getTaskById(taskId);
+            if (task) setSelectedTask(task);
+          }}
+        />
       )}
     </div>
   );
