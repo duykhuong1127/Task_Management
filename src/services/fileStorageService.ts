@@ -76,6 +76,7 @@ class FileStorageService {
         taskId: task.taskId,
         fileId,
         uploadedBy: actor.uid,
+        assignerId: task.assignerId,
       },
     });
 
@@ -108,6 +109,7 @@ class FileStorageService {
       storagePath: path,
     };
 
+    // Binary bytes are in Storage; only small metadata is written to Firestore.
     await setDoc(doc(db, 'tasks', task.taskId, 'files', fileId), metadata);
     this.upsertLocal(metadata);
     return metadata;
@@ -118,6 +120,8 @@ class FileStorageService {
       throw new Error('Tệp cũ chưa có đường dẫn Firebase Storage. Hãy tải lại tệp vào hệ thống mới.');
     }
 
+    // getBlob enforces Firebase Storage Security Rules on every download. The
+    // production bucket must whitelist the web app origin in CORS settings.
     const blob = await getBlob(storageRef(storage, file.storagePath));
     const url = URL.createObjectURL(blob);
     try {
