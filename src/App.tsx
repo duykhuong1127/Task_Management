@@ -10,6 +10,7 @@ import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { dataService } from './services/dataService';
 import { productionSyncService } from './services/productionSyncService';
+import { storageAclService } from './services/storageAclService';
 import { Task, Project, User } from '@shared/types/models';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
@@ -93,6 +94,14 @@ function WorkspaceApp() {
     return productionSyncService.connect(currentUser);
   }, [currentUser.uid, currentUser.role, currentUser.status]);
 
+  // The app data is stored in a named Firestore DB. Firebase Storage Rules can
+  // read only (default), so keep a minimal role/project-membership ACL mirror
+  // there. No task content is duplicated into the ACL database.
+  useEffect(() => {
+    if (currentUser.status !== 'ACTIVE') return undefined;
+    return storageAclService.connect(currentUser);
+  }, [currentUser.uid, currentUser.role, currentUser.status]);
+
   useEffect(() =>
     dataService.subscribe(() => {
       const nextUser = dataService.getSessionUser();
@@ -135,6 +144,11 @@ function WorkspaceApp() {
     setDeferredPrompt(null);
   };
 
+  const disconnectCloud = () => {
+    productionSyncService.disconnect();
+    storageAclService.disconnect();
+  };
+
   if (location.pathname === '/admin' && currentUser.role !== 'ADMIN') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -144,7 +158,7 @@ function WorkspaceApp() {
       <PendingApprovalScreen
         currentUser={currentUser}
         onLogout={async () => {
-          productionSyncService.disconnect();
+          disconnectCloud();
           await logout();
           navigate('/login', { replace: true });
         }}
@@ -176,9 +190,7 @@ function WorkspaceApp() {
             <button onClick={() => void handleInstallPWA()} className="px-3 py-1 rounded bg-[#D4AF37] text-black font-bold flex items-center gap-1">
               <Download className="w-3 h-3" /> Cài đặt
             </button>
-            <button onClick={() => setShowInstallBanner(false)} aria-label="Đóng">
-              <X className="w-4 h-4" />
-            </button>
+            <button onClick={() => setShowInstallBanner(false)} aria-label="Đóng"><X className="w-4 h-4" /></button>
           </div>
         </div>
       )}
@@ -190,7 +202,7 @@ function WorkspaceApp() {
         onOpenAdmin={() => navigate('/admin')}
         onOpenSettings={() => navigate('/settings')}
         onLogout={async () => {
-          productionSyncService.disconnect();
+          disconnectCloud();
           await logout();
           navigate('/login', { replace: true });
         }}
@@ -247,9 +259,7 @@ function WorkspaceApp() {
         </main>
       </div>
 
-      {selectedTask && (
-        <TaskDetailsModalV2 task={selectedTask} currentUser={currentUser} onClose={() => setSelectedTask(null)} />
-      )}
+      {selectedTask && <TaskDetailsModalV2 task={selectedTask} currentUser={currentUser} onClose={() => setSelectedTask(null)} />}
 
       {showCreateTask && (
         <CreateTaskModal
