@@ -32,6 +32,12 @@ type LegacySnapshot = {
   auditLogs: AuditEvent[];
 };
 
+type PendingWrite = {
+  path: string;
+  hash: string;
+  promise: Promise<void>;
+};
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
@@ -43,6 +49,40 @@ function stableStringify(value: any): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
     .join(',')}}`;
+}
+
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== undefined).map((item) => stripUndefined(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    // Preserve Firestore Timestamp/Date and other SDK value objects.
+    if (prototype !== Object.prototype && prototype !== null) return value;
+
+    const clean = Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, stripUndefined(item)])
+    );
+    return clean as T;
+  }
+
+  return value;
+}
+
+function isRetryableWriteError(reason: unknown): boolean {
+  const code = String((reason as { code?: string } | null)?.code || '').replace('firestore/', '');
+  return new Set([
+    'aborted',
+    'cancelled',
+    'deadline-exceeded',
+    'internal',
+    'resource-exhausted',
+    'unavailable',
+    'unknown',
+  ]).has(code);
 }
 
 function iso(value: any): string {
@@ -399,13 +439,24 @@ class ProductionSyncService {
 
   private async persistSnapshot(snapshot: LegacySnapshot, force: boolean): Promise<void> {
     if (!this.user) return;
-    const writes: Promise<void>[] = [];
+    const writes: PendingWrite[] = [];
 
-    const queueWrite = (path: string, reference: ReturnType<typeof doc>, plain: Record<string, any>, firestoreValue?: Record<string, any>) => {
-      const hash = stableStringify(plain);
+    const queueWrite = (
+      path: string,
+      reference: ReturnType<typeof doc>,
+      plain: Record<string, any>,
+      firestoreValue?: Record<string, any>
+    ) => {
+      const cleanPlain = stripUndefined(plain);
+      const cleanFirestoreValue = stripUndefined(firestoreValue || plain);
+      const hash = stableStringify(cleanPlain);
       if (!force && this.hashes.get(path) === hash) return;
-      this.hashes.set(path, hash);
-      writes.push(setDoc(reference, firestoreValue || plain, { merge: false }));
+
+      writes.push({
+        path,
+        hash,
+        promise: setDoc(reference, cleanFirestoreValue, { merge: false }),
+      });
     };
 
     // Admin user management (approve/disable/role) must propagate to every client.
@@ -455,9 +506,26 @@ class ProductionSyncService {
       queueWrite(`auditLogs/${value.eventId}`, doc(db, 'auditLogs', value.eventId), { ...value });
     });
 
-    const results = await Promise.allSettled(writes);
-    results.forEach((result) => {
-      if (result.status === 'rejected') console.error('[ProductionSync] Firestore write rejected', result.reason);
+    const results = await Promise.allSettled(writes.map((write) => write.promise));
+    results.forEach((result, index) => {
+      const write = writes[index];
+      if (result.status === 'fulfilled') {
+        this.hashes.set(write.path, write.hash);
+        return;
+      }
+
+      console.error(`[ProductionSync] Firestore write rejected: ${write.path}`, result.reason);
+
+      // Permission/validation errors are deterministic and should not spin in a
+      // retry loop. Transient backend/network errors are retried once the
+      // current flush finishes. Do not mark them as synchronized.
+      if (isRetryableWriteError(result.reason)) {
+        if (this.hashes.get(write.path) === write.hash) this.hashes.delete(write.path);
+        this.flushAgain = true;
+      } else {
+        // Suppress repeated identical invalid writes until local state changes.
+        this.hashes.set(write.path, write.hash);
+      }
     });
   }
 
@@ -478,7 +546,7 @@ class ProductionSyncService {
   }
 
   private remember(path: string, value: unknown): void {
-    this.hashes.set(path, stableStringify(value));
+    this.hashes.set(path, stableStringify(stripUndefined(value)));
   }
 
   private async maybeMigrateLegacy(): Promise<void> {
