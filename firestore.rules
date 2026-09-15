@@ -57,6 +57,7 @@ service cloud.firestore {
       return isAdmin() || (
         isActive()
         && request.auth.uid in taskData.projectMemberIds
+        && isProjectMember(taskData.projectId)
       );
     }
 
@@ -143,28 +144,40 @@ service cloud.firestore {
         && request.resource.data.assignerId == request.auth.uid
         && request.resource.data.assigneeIds.size() > 0
         && isProjectMember(request.resource.data.projectId)
-        && request.auth.uid in request.resource.data.projectMemberIds;
+        && request.auth.uid in request.resource.data.projectMemberIds
+        && request.resource.data.projectMemberIds == get(projectPath(request.resource.data.projectId)).data.memberIds;
 
       // Assigner/Admin owns workflow completion and core task fields.
-      // Assignees and the project owner may only move non-completed execution
-      // state/progress (e.g. Kanban drag/drop). COMPLETED remains an approval
-      // outcome and cannot be set by the assignee/project owner.
+      // Assignees may only move non-completed execution state/progress.
+      // Project owners may do the same and may refresh projectMemberIds after
+      // membership changes so existing tasks become visible/invisible correctly.
       allow update: if canReadTaskData(resource.data)
         && request.resource.data.taskId == resource.data.taskId
         && request.resource.data.projectId == resource.data.projectId
         && request.resource.data.assignerId == resource.data.assignerId
-        && request.resource.data.projectMemberIds == resource.data.projectMemberIds
+        && (
+          request.resource.data.projectMemberIds == resource.data.projectMemberIds
+          || (
+            (isAdmin() || isProjectOwner(resource.data.projectId))
+            && request.resource.data.projectMemberIds == get(projectPath(resource.data.projectId)).data.memberIds
+          )
+        )
         && (
           isAdmin()
           || request.auth.uid == resource.data.assignerId
           || (
-            (
-              request.auth.uid in resource.data.assigneeIds
-              || isProjectOwner(resource.data.projectId)
-            )
+            request.auth.uid in resource.data.assigneeIds
+            && request.resource.data.projectMemberIds == resource.data.projectMemberIds
             && request.resource.data.status != 'COMPLETED'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'status', 'progressSummary', 'updatedAt'
+            ])
+          )
+          || (
+            isProjectOwner(resource.data.projectId)
+            && request.resource.data.status != 'COMPLETED'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'progressSummary', 'updatedAt', 'projectMemberIds'
             ])
           )
         );
