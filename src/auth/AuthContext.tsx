@@ -106,6 +106,11 @@ function mapAuthError(error: unknown): string {
     return 'Cấu hình Google OAuth/Firebase Auth chưa hợp lệ cho domain hiện tại. Luồng đăng nhập Firebase handler đã bị vô hiệu hóa trong ứng dụng; hãy kiểm tra OAuth Client ID, Authorized JavaScript origins và trạng thái Test users/Production.';
   }
 
+  if (message.toLowerCase().includes('origin_mismatch') || code === 'oauth/origin_mismatch') {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `Lỗi 400 (origin_mismatch): Tên miền ${origin ? `"${origin}"` : 'hiện tại'} chưa được thêm vào mục "Authorized JavaScript origins" trong Google Cloud Console.`;
+  }
+
   if (code) {
     return `Đăng nhập không thành công (${code}). ${message ? `Chi tiết: ${message}` : 'Vui lòng kiểm tra cấu hình Google OAuth.'}`;
   }
