@@ -2,6 +2,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, browserPopupRedirectResolver } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import { APP_REGION, BUSINESS_TIMEZONE } from '@shared/constants/regions';
 import appletConfig from '../../firebase-applet-config.json';
 
@@ -34,5 +35,7 @@ export const db =
     ? getFirestore(app, appletConfig.firestoreDatabaseId)
     : getFirestore(app);
 
-export { app, APP_REGION, BUSINESS_TIMEZONE };
+// Binary attachments live in Firebase Storage; Firestore stores metadata only.
+export const storage = getStorage(app);
 
+export { app, APP_REGION, BUSINESS_TIMEZONE };
