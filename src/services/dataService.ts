@@ -261,45 +261,6 @@ class DataService {
     );
   }
 
-  public registerOrLoginUser(email: string, displayName?: string): User {
-    const normalized = email.trim().toLowerCase();
-    let existing = this.getUserByEmail(normalized);
-    const now = new Date().toISOString();
-    const isDesignatedAdmin = ['duykhuong332@gmail.com', 'admin@company.com'].includes(normalized);
-
-    if (!existing) {
-      existing = {
-        uid: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        googleUid: `google_${Date.now()}`,
-        email: email.trim(),
-        normalizedEmail: normalized,
-        displayName: displayName?.trim() || normalized.split('@')[0],
-        photoURL: undefined,
-        provider: 'google',
-        role: isDesignatedAdmin ? 'ADMIN' : 'MEMBER',
-        status: isDesignatedAdmin ? 'ACTIVE' : 'PENDING_APPROVAL',
-        createdAt: now,
-        lastLoginAt: now,
-        updatedAt: now,
-      };
-      this.users.push(existing);
-      this.addAuditLog('USER_REGISTERED', 'USER', existing.uid, undefined, {
-        email: existing.email,
-        status: existing.status,
-      });
-      this.saveState();
-      this.notify();
-    } else {
-      existing.lastLoginAt = now;
-      existing.updatedAt = now;
-      this.saveState();
-      this.notify();
-    }
-
-    this.currentUserId = existing.uid;
-    return existing;
-  }
-
   // Admin User Management
   public inviteUser(email: string, displayName: string, role: UserRole = 'MEMBER'): { success: boolean; error?: string } {
     const actor = this.getCurrentUser();

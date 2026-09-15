@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, ShieldAlert, RefreshCw, LogOut, CheckCircle, ShieldCheck, Mail, User as UserIcon } from 'lucide-react';
+import { Clock, ShieldAlert, RefreshCw, LogOut, CheckCircle, Mail, User as UserIcon } from 'lucide-react';
 import { User } from '@shared/types/models';
 import { useAuth } from '../auth/AuthContext';
 import { PhongPhuLogo } from './PhongPhuLogo';
@@ -10,7 +10,7 @@ interface PendingApprovalScreenProps {
 }
 
 export const PendingApprovalScreen: React.FC<PendingApprovalScreenProps> = ({ currentUser, onLogout }) => {
-  const { refreshUser, signInAsDemoUser } = useAuth();
+  const { refreshUser } = useAuth();
   const [isChecking, setIsChecking] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -41,10 +41,6 @@ export const PendingApprovalScreen: React.FC<PendingApprovalScreenProps> = ({ cu
     } finally {
       setIsChecking(false);
     }
-  };
-
-  const handleSwitchToAdmin = () => {
-    signInAsDemoUser('duykhuong332@gmail.com');
   };
 
   const isPending = currentUser.status === 'PENDING_APPROVAL' || currentUser.status === 'INVITED';
@@ -142,16 +138,6 @@ export const PendingApprovalScreen: React.FC<PendingApprovalScreenProps> = ({ cu
               <span>{isChecking ? 'Đang kiểm tra trạng thái…' : 'Kiểm tra lại trạng thái duyệt'}</span>
             </button>
           )}
-
-          {/* Quick Demo Switch to Admin */}
-          <button
-            type="button"
-            onClick={handleSwitchToAdmin}
-            className="w-full py-2.5 px-4 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100/80 text-amber-900 font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <ShieldCheck className="w-4 h-4 text-amber-700" />
-            <span>Chuyển sang Quản trị viên (duykhuong332@gmail.com) để duyệt</span>
-          </button>
 
           <button
             type="button"
