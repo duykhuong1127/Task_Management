@@ -109,8 +109,20 @@ class FileStorageService {
       storagePath: path,
     };
 
-    // Binary bytes are in Storage; only small metadata is written to Firestore.
-    await setDoc(doc(db, 'tasks', task.taskId, 'files', fileId), metadata);
+    try {
+      // Binary bytes are in Storage; only small metadata is written to Firestore.
+      await setDoc(doc(db, 'tasks', task.taskId, 'files', fileId), metadata);
+    } catch (metadataError) {
+      // Avoid orphaned binary objects if the Firestore metadata transaction is
+      // rejected by rules or interrupted after Storage upload completes.
+      try {
+        await deleteObject(objectRef);
+      } catch (cleanupError) {
+        console.error('[FileStorage] failed to clean orphaned object', cleanupError);
+      }
+      throw metadataError;
+    }
+
     this.upsertLocal(metadata);
     return metadata;
   }
