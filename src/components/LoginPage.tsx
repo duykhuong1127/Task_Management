@@ -48,6 +48,16 @@ export function LoginPage() {
         {error && (
           <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-700 animate-in fade-in" role="alert">
             <div className="font-medium text-xs leading-relaxed">{error}</div>
+            <div className="mt-2.5 pt-2 border-t border-red-200/60 flex items-center justify-between text-[11px]">
+              <span className="text-red-600">Gặp sự cố với popup xác thực?</span>
+              <button
+                type="button"
+                onClick={() => window.open(window.location.href, '_blank', 'noopener,noreferrer')}
+                className="font-medium text-red-800 hover:text-red-950 underline cursor-pointer"
+              >
+                Mở trong tab mới
+              </button>
+            </div>
           </div>
         )}
 

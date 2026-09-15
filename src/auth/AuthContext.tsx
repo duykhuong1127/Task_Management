@@ -1,19 +1,43 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   User as FirebaseUser,
+  GoogleAuthProvider,
   browserLocalPersistence,
   browserSessionPersistence,
   inMemoryPersistence,
   onAuthStateChanged,
   setPersistence,
+  signInWithCredential,
   signInWithPopup,
   signInWithRedirect,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { User, UserRole, UserStatus } from '@shared/types/models';
-import { auth, db, googleProvider, isFirebaseConfigured, browserPopupRedirectResolver } from '../config/firebase';
+import { auth, db, googleProvider, isFirebaseConfigured, appletConfig } from '../config/firebase';
 import { dataService } from '../services/dataService';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: {
+              access_token?: string;
+              error?: string;
+              error_description?: string;
+            }) => void;
+          }) => {
+            requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+          };
+        };
+      };
+    };
+  }
+}
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -53,12 +77,20 @@ function mapAuthError(error: unknown): string {
     'auth/operation-not-allowed': 'Đăng nhập Google chưa được kích hoạt trong Firebase Authentication.',
     'auth/user-disabled': 'Tài khoản Google này đã bị vô hiệu hóa trong hệ thống.',
     'auth/web-storage-unsupported':
-      'Trình duyệt chặn lưu trữ bên thứ ba trong khung xem trước. Vui lòng mở ứng dụng trong tab mới hoặc chọn đăng nhập nhanh.',
+      'Trình duyệt chặn lưu trữ bên thứ ba trong khung xem trước. Vui lòng mở ứng dụng trong tab mới hoặc chọn đăng nhập bằng email.',
     'auth/internal-error': 'Lỗi kết nối từ dịch vụ Google Authentication. Vui lòng thử lại.',
+    'auth/invalid-action':
+      'Cửa sổ xác thực Google bị lỗi kết nối do trình duyệt chặn cookie hoặc chạy trong khung xem trước. Vui lòng mở ứng dụng trong tab mới hoặc đăng nhập bằng email bên dưới.',
+    'auth/bad-request':
+      'Cửa sổ xác thực Google bị lỗi kết nối do trình duyệt chặn cookie hoặc chạy trong khung xem trước. Vui lòng mở ứng dụng trong tab mới hoặc đăng nhập bằng email bên dưới.',
   };
 
   if (code && messages[code]) {
     return messages[code];
+  }
+
+  if (message.toLowerCase().includes('the requested action is invalid') || message.toLowerCase().includes('bad-request')) {
+    return 'Cửa sổ xác thực Google bị lỗi kết nối do trình duyệt chặn cookie hoặc chạy trong khung xem trước. Vui lòng mở ứng dụng trong tab mới hoặc đăng nhập bằng email bên dưới.';
   }
 
   if (code) {
@@ -199,13 +231,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (syncError) {
         console.warn('Firestore profile sync fallback:', syncError);
         const isDesignatedAdmin = DESIGNATED_ADMIN_EMAILS.includes(nextFirebaseUser.email?.toLowerCase() || '');
+        const initialStatus: UserStatus = isDesignatedAdmin ? 'ACTIVE' : 'PENDING_APPROVAL';
         const appUser = dataService.syncAuthenticatedUser({
           googleUid: nextFirebaseUser.uid,
           email: nextFirebaseUser.email || '',
           displayName: nextFirebaseUser.displayName || nextFirebaseUser.email?.split('@')[0] || 'Google User',
           photoURL: nextFirebaseUser.photoURL || undefined,
           role: isDesignatedAdmin ? 'ADMIN' : 'MEMBER',
-          status: 'ACTIVE',
+          status: initialStatus,
         });
         setUser(appUser);
         setError(null);
@@ -222,6 +255,119 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setStatus('loading');
+
+    // Strategy 1: Google Identity Services (GIS) Token Client
+    // Uses accounts.google.com directly - avoiding firebaseapp.com/__/auth/handler iframe / origin issues
+    const hasGIS = typeof window !== 'undefined' && Boolean(window.google?.accounts?.oauth2);
+    if (hasGIS && appletConfig.oAuthClientId) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const tokenClient = window.google!.accounts!.oauth2!.initTokenClient({
+            client_id: appletConfig.oAuthClientId,
+            scope: 'email profile openid',
+            callback: async (tokenResponse) => {
+              if (settled) return;
+              settled = true;
+
+              if (tokenResponse.error) {
+                if (tokenResponse.error === 'popup_closed_by_user' || tokenResponse.error === 'access_denied') {
+                  reject({ code: 'auth/popup-closed-by-user' });
+                } else {
+                  reject(new Error(tokenResponse.error_description || tokenResponse.error));
+                }
+                return;
+              }
+
+              if (tokenResponse.access_token) {
+                try {
+                  // Sign in with Firebase using the Google access token
+                  const credential = GoogleAuthProvider.credential(null, tokenResponse.access_token);
+                  await signInWithCredential(auth, credential);
+                  resolve();
+                } catch (firebaseCredErr) {
+                  console.warn('signInWithCredential fallback to userinfo fetch:', firebaseCredErr);
+                  try {
+                    const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                      headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+                    }).then((r) => r.json());
+
+                    if (!userInfo.email) {
+                      throw new Error('Không thể lấy thông tin email từ Google.');
+                    }
+
+                    const isDesignatedAdmin = DESIGNATED_ADMIN_EMAILS.includes(userInfo.email.toLowerCase());
+                    const initialRole: UserRole = isDesignatedAdmin ? 'ADMIN' : 'MEMBER';
+                    const initialStatus: UserStatus = isDesignatedAdmin ? 'ACTIVE' : 'PENDING_APPROVAL';
+                    const now = new Date().toISOString();
+                    const googleUid = userInfo.sub || `google_${Date.now()}`;
+
+                    if (isFirebaseConfigured) {
+                      try {
+                        const profileRef = doc(db, 'users', googleUid);
+                        const existingSnap = await getDoc(profileRef);
+                        const existing = existingSnap.exists() ? existingSnap.data() : null;
+
+                        await setDoc(
+                          profileRef,
+                          {
+                            uid: googleUid,
+                            googleUid,
+                            email: userInfo.email,
+                            normalizedEmail: userInfo.email.toLowerCase(),
+                            displayName: userInfo.name || userInfo.email.split('@')[0],
+                            photoURL: userInfo.picture || null,
+                            provider: 'google',
+                            role: isDesignatedAdmin ? 'ADMIN' : validRole(existing?.role, false),
+                            status: existing ? validStatus(existing.status, isDesignatedAdmin) : initialStatus,
+                            lastLoginAt: now,
+                            updatedAt: now,
+                            ...(existing ? {} : { createdAt: now }),
+                          },
+                          { merge: true }
+                        );
+                      } catch (docErr) {
+                        console.warn('Could not write user profile to Firestore:', docErr);
+                      }
+                    }
+
+                    const appUser = dataService.syncAuthenticatedUser({
+                      googleUid,
+                      email: userInfo.email,
+                      displayName: userInfo.name || userInfo.email.split('@')[0],
+                      photoURL: userInfo.picture,
+                      role: initialRole,
+                      status: initialStatus,
+                    });
+
+                    setUser(appUser);
+                    setStatus('authenticated');
+                    resolve();
+                  } catch (fetchErr) {
+                    reject(fetchErr);
+                  }
+                }
+              } else {
+                reject(new Error('Không nhận được token xác thực từ Google.'));
+              }
+            },
+          });
+
+          tokenClient.requestAccessToken({ prompt: 'select_account' });
+        });
+        return;
+      } catch (gisError) {
+        console.warn('GIS sign in attempt encountered error, falling back:', gisError);
+        const errCode = (gisError as { code?: string })?.code || '';
+        if (errCode === 'auth/popup-closed-by-user') {
+          setError('Bạn đã đóng cửa sổ đăng nhập Google trước khi hoàn tất.');
+          setStatus(auth.currentUser ? 'authenticated' : 'unauthenticated');
+          return;
+        }
+      }
+    }
+
+    // Strategy 2: Standard Firebase popup
     try {
       try {
         await setPersistence(auth, browserLocalPersistence);
@@ -232,7 +378,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Ignore storage restriction and proceed to popup
         }
       }
-      await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
+      await signInWithPopup(auth, googleProvider);
     } catch (signInError: unknown) {
       console.warn('Firebase Google sign-in exception:', signInError);
       const errCode = (signInError as { code?: string })?.code || '';
