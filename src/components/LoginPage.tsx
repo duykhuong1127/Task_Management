@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { LoaderCircle } from 'lucide-react';
+import { ExternalLink, LoaderCircle } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { AuthLoadingScreen } from './AuthLoadingScreen';
 import { PhongPhuLogo } from './PhongPhuLogo';
@@ -17,25 +16,13 @@ function GoogleIcon() {
 }
 
 export function LoginPage() {
-  const { status, error, signInWithGoogle, signInWithEmail } = useAuth();
-  const [customEmail, setCustomEmail] = useState('');
-  const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
+  const { status, error, signInWithGoogle } = useAuth();
 
   if (status === 'authenticated') return <Navigate to="/dashboard" replace />;
   if (status === 'loading' && !error) return <AuthLoadingScreen />;
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customEmail.trim()) return;
-
-    setIsSubmittingEmail(true);
-    try {
-      await signInWithEmail(customEmail.trim());
-    } catch {
-      // Error handled by AuthContext
-    } finally {
-      setIsSubmittingEmail(false);
-    }
+  const openStandalone = () => {
+    window.open(window.location.href, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -43,19 +30,20 @@ export function LoginPage() {
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white px-7 py-9 sm:px-10 sm:py-11 shadow-[0_20px_60px_rgba(15,23,42,0.10)] text-center">
         <PhongPhuLogo size="lg" className="h-14 mx-auto mb-7" />
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Quản lý Công việc</h1>
-        <p className="mt-2 text-sm text-slate-600">Đăng nhập để quản lý công việc của bạn</p>
+        <p className="mt-2 text-sm text-slate-600">Đăng nhập bằng tài khoản Google đã được cấp quyền</p>
 
         {error && (
           <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-700 animate-in fade-in" role="alert">
             <div className="font-medium text-xs leading-relaxed">{error}</div>
-            <div className="mt-2.5 pt-2 border-t border-red-200/60 flex items-center justify-between text-[11px]">
-              <span className="text-red-600">Gặp sự cố với popup xác thực?</span>
+            <div className="mt-3 pt-3 border-t border-red-200/60 flex items-center justify-between gap-3 text-[11px]">
+              <span className="text-red-600">Nếu đang mở trong cửa sổ Preview, hãy thử tab độc lập.</span>
               <button
                 type="button"
-                onClick={() => window.open(window.location.href, '_blank', 'noopener,noreferrer')}
-                className="font-medium text-red-800 hover:text-red-950 underline cursor-pointer"
+                onClick={openStandalone}
+                className="shrink-0 inline-flex items-center gap-1 font-medium text-red-800 hover:text-red-950 underline cursor-pointer"
               >
-                Mở trong tab mới
+                <ExternalLink className="h-3 w-3" />
+                Mở tab mới
               </button>
             </div>
           </div>
@@ -71,32 +59,8 @@ export function LoginPage() {
           <span>{status === 'loading' ? 'Đang xác thực…' : 'Tiếp tục với Google'}</span>
         </button>
 
-        {/* Direct Email Login Form */}
-        <form onSubmit={handleEmailSubmit} className="mt-4 text-left">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-xs font-semibold text-slate-700">Hoặc đăng nhập bằng Email:</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="email"
-              value={customEmail}
-              onChange={(e) => setCustomEmail(e.target.value)}
-              placeholder="nhap.email@phongphucorp.com"
-              className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
-              required
-            />
-            <button
-              type="submit"
-              disabled={isSubmittingEmail || !customEmail.trim()}
-              className="rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-2.5 text-xs font-semibold transition cursor-pointer whitespace-nowrap shadow-sm"
-            >
-              {isSubmittingEmail ? 'Đang xử lý…' : 'Đăng nhập'}
-            </button>
-          </div>
-        </form>
-
         <p className="mt-6 text-xs leading-5 text-slate-400">
-          Tài khoản và mật khẩu của bạn luôn được nhập trực tiếp trên hệ thống bảo mật của Google.
+          Ứng dụng chỉ sử dụng Google Sign-In. Mật khẩu Google không được nhập hoặc lưu trong hệ thống này.
         </p>
       </section>
     </main>
