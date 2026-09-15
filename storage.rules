@@ -1,0 +1,54 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function authenticated() {
+      return request.auth != null;
+    }
+
+    function aclUser() {
+      return firestore.get(/databases/(default)/documents/storageUsers/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return authenticated() && aclUser().status == 'ACTIVE';
+    }
+
+    function admin() {
+      return activeUser() && aclUser().role == 'ADMIN';
+    }
+
+    function aclProject(projectId) {
+      return firestore.get(/databases/(default)/documents/storageProjects/$(projectId)).data;
+    }
+
+    function projectMember(projectId) {
+      return admin() || (
+        activeUser()
+        && aclProject(projectId).deleted != true
+        && request.auth.uid in aclProject(projectId).memberIds
+      );
+    }
+
+    match /projects/{projectId}/tasks/{taskId}/{fileId}/{fileName} {
+      allow read: if projectMember(projectId);
+
+      allow create: if projectMember(projectId)
+        && request.resource.size > 0
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.metadata.projectId == projectId
+        && request.resource.metadata.taskId == taskId
+        && request.resource.metadata.fileId == fileId
+        && request.resource.metadata.uploadedBy == request.auth.uid;
+
+      // Binary objects are immutable. Upload a new file/version instead of
+      // mutating an existing object's content or authorization metadata.
+      allow update: if false;
+
+      allow delete: if projectMember(projectId) && (
+        admin()
+        || resource.metadata.uploadedBy == request.auth.uid
+        || resource.metadata.assignerId == request.auth.uid
+      );
+    }
+  }
+}

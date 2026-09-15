@@ -36,6 +36,8 @@ export interface Project {
   ownerId: string;
   status: ProjectStatus;
   members?: Record<string, ProjectMember>;
+  /** Denormalized membership index used by Firestore array-contains queries. */
+  memberIds?: string[];
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -71,6 +73,8 @@ export interface Task {
   description: string;
   assignerId: string; // EXACTLY ONE ASSIGNER
   assigneeIds: string[]; // ONE OR MORE ASSIGNEES
+  /** Denormalized project membership used only for secure realtime Firestore queries. */
+  projectMemberIds?: string[];
   priority: TaskPriority;
   status: TaskStatus;
   deadline: string; // ISO 8601 Timestamp
@@ -116,10 +120,15 @@ export interface TaskFile {
   driveOwnerId: string;
   driveOwnerEmail?: string;
   drivePath?: string;
+  /** Legacy browser-only payload. Never persisted to Firestore in production. */
   dataUrl?: string;
+  /** Production binary storage provider/path. */
+  storageProvider?: 'firebase-storage' | 'legacy-drive';
+  storagePath?: string;
   createdAt: string;
   deleted: boolean;
   deletedAt?: string;
+  deletedBy?: string;
 }
 
 export type NotificationType =
@@ -153,6 +162,7 @@ export interface Notification {
   createdAt: string;
   deliveryStatus?: 'DELIVERED' | 'QUEUED' | 'FAILED';
   deduplicationKey: string;
+  createdBy?: string;
 }
 
 export type AuditAction =
