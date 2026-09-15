@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function authenticated() {
+      return request.auth != null;
+    }
+
+    function bootstrapAdmin() {
+      return authenticated()
+        && request.auth.token.email in ['duykhuong332@gmail.com', 'admin@company.com'];
+    }
+
+    function storageUserPath(uid) {
+      return /databases/$(database)/documents/storageUsers/$(uid);
+    }
+
+    function currentStorageUser() {
+      return get(storageUserPath(request.auth.uid)).data;
+    }
+
+    function activeStorageUser() {
+      return authenticated()
+        && exists(storageUserPath(request.auth.uid))
+        && currentStorageUser().status == 'ACTIVE';
+    }
+
+    function storageAdmin() {
+      return activeStorageUser() && currentStorageUser().role == 'ADMIN';
+    }
+
+    match /storageUsers/{uid} {
+      allow read: if storageAdmin() || (authenticated() && request.auth.uid == uid);
+
+      // Bootstrap admin may establish the first ACL admin record. Afterwards an
+      // ACL admin mirrors user approval/role/status from the named app database.
+      allow create: if (
+          request.auth.uid == uid
+          && bootstrapAdmin()
+          && request.resource.data.role == 'ADMIN'
+          && request.resource.data.status == 'ACTIVE'
+        ) || storageAdmin();
+
+      allow update, delete: if storageAdmin();
+    }
+
+    match /storageProjects/{projectId} {
+      allow read: if storageAdmin() || (
+        activeStorageUser() && request.auth.uid in resource.data.memberIds
+      );
+
+      allow create: if storageAdmin() || (
+        activeStorageUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds
+      );
+
+      allow update: if storageAdmin() || (
+        activeStorageUser()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+      );
+
+      allow delete: if storageAdmin();
+    }
+
+    // No application content belongs in (default); it only hosts the minimal
+    // ACL mirror required by Cloud Storage Security Rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
