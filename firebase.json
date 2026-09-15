@@ -1,8 +1,16 @@
 {
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
+  "firestore": [
+    {
+      "database": "ai-studio-qunlcngvicpwa-dc6350a2-299f-43fb-9ad1-c9d845466237",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "(default)",
+      "rules": "firestore.storage-acl.rules",
+      "indexes": "firestore.default.indexes.json"
+    }
+  ],
   "storage": {
     "rules": "storage.rules"
   },
