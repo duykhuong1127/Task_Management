@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -18,17 +17,23 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && getUserData().role == 'ADMIN' && isActive();
     }
+
+    function isBootstrapAdminEmail() {
+      return isAuthenticated()
+        && request.auth.token.email in ['duykhuong332@gmail.com', 'admin@company.com'];
+    }
     
     function isProjectMember(projectId) {
       return isAdmin() || 
         exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
     }
     
-    // User profiles & allowlist
+    // User profiles & approval gate
     match /users/{userId} {
       allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
 
-      // First Google sign-in creates a least-privilege profile for the authenticated UID.
+      // Normal Google accounts start with least privilege and wait for admin approval.
+      // Only explicit bootstrap admin emails may start ACTIVE + ADMIN.
       allow create: if isAuthenticated()
         && request.auth.uid == userId
         && request.resource.data.uid == request.auth.uid
@@ -37,12 +42,20 @@ service cloud.firestore {
         && request.auth.token.email_verified == true
         && request.resource.data.provider == 'google'
         && (
-          request.resource.data.role == 'MEMBER' ||
-          (request.resource.data.role == 'ADMIN' && request.auth.token.email in ['duykhuong332@gmail.com', 'admin@company.com'])
-        )
-        && request.resource.data.status == 'ACTIVE';
+          (
+            isBootstrapAdminEmail()
+            && request.resource.data.role == 'ADMIN'
+            && request.resource.data.status == 'ACTIVE'
+          )
+          ||
+          (
+            !isBootstrapAdminEmail()
+            && request.resource.data.role == 'MEMBER'
+            && request.resource.data.status == 'PENDING_APPROVAL'
+          )
+        );
 
-      // Users may refresh only their Google profile and login timestamps.
+      // Users may refresh only Google identity/profile fields. role/status are admin-owned.
       allow update: if isAdmin() || (
         isAuthenticated()
         && request.auth.uid == userId
@@ -52,10 +65,9 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.provider == 'google'
       );
-      allow delete: if false; // Soft delete only
+      allow delete: if false;
     }
     
-    // Projects collection
     match /projects/{projectId} {
       allow read: if isProjectMember(projectId);
       allow create: if isActive();
@@ -68,36 +80,27 @@ service cloud.firestore {
       }
     }
     
-    // Tasks collection
     match /tasks/{taskId} {
       allow read: if isProjectMember(resource.data.projectId);
-      // Invariant: assignerId must equal current authenticated user
       allow create: if isActive() 
         && request.resource.data.assignerId == request.auth.uid
         && request.resource.data.assigneeIds.size() > 0
         && isProjectMember(request.resource.data.projectId);
       
-      // Invariant: cannot forge assignerId or rewrite createdAt
       allow update: if isProjectMember(resource.data.projectId)
         && request.resource.data.assignerId == resource.data.assignerId;
       
       allow delete: if isAdmin() || (resource.data.assignerId == request.auth.uid);
       
-      // Task Assignments subcollection
       match /assignments/{assigneeUid} {
         allow read: if isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId);
-        // Only assignee or assigner or admin can update progress
         allow write: if isAdmin() 
           || request.auth.uid == assigneeUid 
           || request.auth.uid == get(/databases/$(database)/documents/tasks/$(taskId)).data.assignerId;
       }
       
-      // Task Chat messages
       match /messages/{messageId} {
         allow read: if isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId);
-        
-        // T+15 Chat Retention Rule:
-        // Must be participant, senderId must equal auth uid, and chatWritableUntil must be valid
         allow create: if isActive()
           && isProjectMember(get(/databases/$(database)/documents/tasks/$(taskId)).data.projectId)
           && request.resource.data.senderId == request.auth.uid
@@ -105,7 +108,6 @@ service cloud.firestore {
             !('chatWritableUntil' in get(/databases/$(database)/documents/tasks/$(taskId)).data)
             || request.time <= get(/databases/$(database)/documents/tasks/$(taskId)).data.chatWritableUntil
           );
-          
         allow update: if request.auth.uid == resource.data.senderId
           && (
             !('chatWritableUntil' in get(/databases/$(database)/documents/tasks/$(taskId)).data)
@@ -114,7 +116,6 @@ service cloud.firestore {
         allow delete: if isAdmin() || request.auth.uid == resource.data.senderId;
       }
       
-      // Task Files metadata
       match /files/{fileId} {
         allow read: if isProjectMember(resource.data.projectId);
         allow create: if isActive() && isProjectMember(request.resource.data.projectId);
@@ -122,21 +123,18 @@ service cloud.firestore {
       }
     }
     
-    // Notifications collection
     match /notifications/{notificationId} {
       allow read, update: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isActive();
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
     
-    // Audit Logs - Strictly immutable and read-only for Admin
     match /auditLogs/{eventId} {
       allow read: if isAdmin();
       allow create: if isActive();
-      allow update, delete: if false; // Append-only, never modifiable
+      allow update, delete: if false;
     }
     
-    // FCM Device tokens
     match /deviceTokens/{tokenId} {
       allow read, write: if isAuthenticated() && request.auth.uid == resource.data.uid;
       allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
