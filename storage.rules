@@ -1,44 +1,38 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function isAuthenticated() {
+    function authenticated() {
       return request.auth != null;
     }
 
-    function userDoc() {
-      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+    function aclUser() {
+      return firestore.get(/databases/(default)/documents/storageUsers/$(request.auth.uid)).data;
     }
 
-    function isActive() {
-      return isAuthenticated()
-        && userDoc().data.status == 'ACTIVE';
+    function activeUser() {
+      return authenticated() && aclUser().status == 'ACTIVE';
     }
 
-    function isAdmin() {
-      return isActive() && userDoc().data.role == 'ADMIN';
+    function admin() {
+      return activeUser() && aclUser().role == 'ADMIN';
     }
 
-    function projectDoc(projectId) {
-      return firestore.get(/databases/(default)/documents/projects/$(projectId));
+    function aclProject(projectId) {
+      return firestore.get(/databases/(default)/documents/storageProjects/$(projectId)).data;
     }
 
-    function taskDoc(taskId) {
-      return firestore.get(/databases/(default)/documents/tasks/$(taskId));
-    }
-
-    function isProjectMember(projectId) {
-      return isAdmin() || (
-        isActive()
-        && request.auth.uid in projectDoc(projectId).data.memberIds
+    function projectMember(projectId) {
+      return admin() || (
+        activeUser()
+        && aclProject(projectId).deleted != true
+        && request.auth.uid in aclProject(projectId).memberIds
       );
     }
 
     match /projects/{projectId}/tasks/{taskId}/{fileId}/{fileName} {
-      allow read: if isProjectMember(projectId)
-        && taskDoc(taskId).data.projectId == projectId;
+      allow read: if projectMember(projectId);
 
-      allow create: if isProjectMember(projectId)
-        && taskDoc(taskId).data.projectId == projectId
+      allow create: if projectMember(projectId)
         && request.resource.size > 0
         && request.resource.size <= 25 * 1024 * 1024
         && request.resource.metadata.projectId == projectId
@@ -46,13 +40,14 @@ service firebase.storage {
         && request.resource.metadata.fileId == fileId
         && request.resource.metadata.uploadedBy == request.auth.uid;
 
-      // Binary objects are immutable. Replace by uploading a new file/version.
+      // Binary objects are immutable. Upload a new file/version instead of
+      // mutating an existing object's content or authorization metadata.
       allow update: if false;
 
-      allow delete: if isProjectMember(projectId) && (
-        isAdmin()
+      allow delete: if projectMember(projectId) && (
+        admin()
         || resource.metadata.uploadedBy == request.auth.uid
-        || taskDoc(taskId).data.assignerId == request.auth.uid
+        || resource.metadata.assignerId == request.auth.uid
       );
     }
   }
