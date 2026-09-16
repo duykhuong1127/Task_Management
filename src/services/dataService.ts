@@ -187,6 +187,82 @@ class DataService {
   }
 
   /**
+   * Replace a legacy/demo user id with the UID verified by Firebase Auth.
+   *
+   * Firestore rules compare ownership fields directly with request.auth.uid.
+   * Keeping an old seed id for a user matched by email therefore makes every
+   * project/task created by that user fail its cloud write.
+   */
+  private migrateUserIdentifier(oldUid: string, firebaseUid: string): void {
+    if (!oldUid || oldUid === firebaseUid) return;
+
+    this.users.forEach((row) => {
+      if (row.createdBy === oldUid) row.createdBy = firebaseUid;
+    });
+
+    this.projects.forEach((project) => {
+      if (project.ownerId === oldUid) project.ownerId = firebaseUid;
+      if (project.deletedBy === oldUid) project.deletedBy = firebaseUid;
+
+      const legacyMember = project.members?.[oldUid];
+      if (legacyMember && project.members) {
+        project.members[firebaseUid] = {
+          ...legacyMember,
+          userId: firebaseUid,
+          addedBy: legacyMember.addedBy === oldUid ? firebaseUid : legacyMember.addedBy,
+        };
+        delete project.members[oldUid];
+      }
+
+      if (project.members) {
+        Object.values(project.members).forEach((member) => {
+          if (member.userId === oldUid) member.userId = firebaseUid;
+          if (member.addedBy === oldUid) member.addedBy = firebaseUid;
+        });
+      }
+      if (project.memberIds) {
+        project.memberIds = [...new Set(project.memberIds.map((uid) => (uid === oldUid ? firebaseUid : uid)))];
+      }
+    });
+
+    this.tasks.forEach((task) => {
+      if (task.assignerId === oldUid) task.assignerId = firebaseUid;
+      if (task.createdBy === oldUid) task.createdBy = firebaseUid;
+      if (task.deletedBy === oldUid) task.deletedBy = firebaseUid;
+      task.assigneeIds = [...new Set(task.assigneeIds.map((uid) => (uid === oldUid ? firebaseUid : uid)))];
+      if (task.projectMemberIds) {
+        task.projectMemberIds = [...new Set(task.projectMemberIds.map((uid) => (uid === oldUid ? firebaseUid : uid)))];
+      }
+    });
+
+    const migratedAssignments: Record<string, TaskAssignment> = {};
+    Object.values(this.assignments).forEach((assignment) => {
+      const userId = assignment.userId === oldUid ? firebaseUid : assignment.userId;
+      migratedAssignments[`${assignment.taskId}_${userId}`] = { ...assignment, userId };
+    });
+    this.assignments = migratedAssignments;
+
+    this.messages.forEach((message) => {
+      if (message.senderId === oldUid) message.senderId = firebaseUid;
+      message.mentions = [...new Set(message.mentions.map((uid) => (uid === oldUid ? firebaseUid : uid)))];
+    });
+    this.files.forEach((file) => {
+      if (file.uploadedBy === oldUid) file.uploadedBy = firebaseUid;
+      if (file.driveOwnerId === oldUid) file.driveOwnerId = firebaseUid;
+      if (file.deletedBy === oldUid) file.deletedBy = firebaseUid;
+    });
+    this.notifications.forEach((notification) => {
+      if (notification.userId === oldUid) notification.userId = firebaseUid;
+      if (notification.createdBy === oldUid) notification.createdBy = firebaseUid;
+    });
+    this.auditLogs.forEach((event) => {
+      if (event.actorId === oldUid) event.actorId = firebaseUid;
+    });
+
+    if (this.currentUserId === oldUid) this.currentUserId = firebaseUid;
+  }
+
+  /**
    * Synchronize a user only after Firebase has verified the Google account.
    * Role and status come from the trusted Firestore profile, never from an email allowlist.
    */
@@ -202,8 +278,9 @@ class DataService {
   }): User {
     const normalizedEmail = profile.email.trim().toLowerCase();
     let user = this.users.find(
-      (candidate) => candidate.googleUid === profile.googleUid || candidate.normalizedEmail === normalizedEmail
+      (candidate) => candidate.uid === profile.googleUid || candidate.googleUid === profile.googleUid
     );
+    user ||= this.users.find((candidate) => candidate.normalizedEmail === normalizedEmail);
     const now = new Date().toISOString();
 
     if (!user) {
@@ -223,6 +300,11 @@ class DataService {
       };
       this.users.push(user);
     } else {
+      const legacyUid = user.uid;
+      if (legacyUid !== profile.googleUid) {
+        this.migrateUserIdentifier(legacyUid, profile.googleUid);
+        user.uid = profile.googleUid;
+      }
       user.googleUid = profile.googleUid;
       user.email = profile.email;
       user.normalizedEmail = normalizedEmail;

@@ -126,6 +126,38 @@ describe('Business Logic & Security Authorization Scenarios', () => {
     expect(userProjects.some((p) => p.projectId === 'proj_alpha')).toBe(true);
   });
 
+  it('uses the Firebase Auth UID when a Google account matches a legacy seed email', () => {
+    const firebaseUid = 'firebase-admin-uid';
+    const loginUser = dataService.syncAuthenticatedUser({
+      googleUid: firebaseUid,
+      email: 'duykhuong332@gmail.com',
+      displayName: 'Trương Khương Duy',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+
+    expect(loginUser.uid).toBe(firebaseUid);
+    expect(dataService.getCurrentUser().uid).toBe(firebaseUid);
+    expect(dataService.getUserById('user_duykhuong')).toBeUndefined();
+
+    const projectResult = dataService.createProject('Dự án Firebase UID', 'Regression test', []);
+    expect(projectResult.success).toBe(true);
+    expect(projectResult.project?.ownerId).toBe(firebaseUid);
+    expect(projectResult.project?.members?.[firebaseUid]?.userId).toBe(firebaseUid);
+
+    const taskResult = dataService.createTask({
+      projectId: projectResult.project!.projectId,
+      title: 'Công việc Firebase UID',
+      description: 'Regression test',
+      assigneeIds: [firebaseUid],
+      priority: 'NORMAL',
+      deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+    });
+    expect(taskResult.success).toBe(true);
+    expect(taskResult.task?.assignerId).toBe(firebaseUid);
+    expect(taskResult.task?.assigneeIds).toEqual([firebaseUid]);
+  });
+
   it('stores uploaded files in the task assigner Google Drive account', () => {
     // TASK-001 has assigner 'user_a' (a@gmail.com)
     dataService.setCurrentUser('user_b'); // member of proj_alpha
