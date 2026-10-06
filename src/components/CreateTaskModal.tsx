@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Project, User, TaskPriority } from '@shared/types/models';
 import { dataService } from '../services/dataService';
 import { X, Calendar, Flag, Users, FolderKanban, Check } from 'lucide-react';
@@ -6,17 +6,28 @@ import { X, Calendar, Flag, Users, FolderKanban, Check } from 'lucide-react';
 interface CreateTaskModalProps {
   currentUser: User;
   projects: Project[];
+  initialProjectId?: string;
   onClose: () => void;
   onSuccess: () => void;
+}
+
+export function resolveCreateTaskProjectId(projects: Project[], preferredProjectId?: string): string {
+  if (preferredProjectId && projects.some((project) => project.projectId === preferredProjectId)) {
+    return preferredProjectId;
+  }
+  return projects[0]?.projectId || '';
 }
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   currentUser,
   projects,
+  initialProjectId,
   onClose,
   onSuccess,
 }) => {
-  const [projectId, setProjectId] = useState<string>(projects[0]?.projectId || '');
+  const [projectId, setProjectId] = useState<string>(() =>
+    resolveCreateTaskProjectId(projects, initialProjectId)
+  );
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
@@ -25,6 +36,15 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   // Default deadline: 48 hours from now in Vietnam time format YYYY-MM-DDTHH:mm
   const defaultDeadline = new Date(Date.now() + 48 * 3600 * 1000).toISOString().slice(0, 16);
   const [deadline, setDeadline] = useState(defaultDeadline);
+
+  useEffect(() => {
+    setProjectId((currentProjectId) => {
+      if (projects.some((project) => project.projectId === currentProjectId)) {
+        return currentProjectId;
+      }
+      return resolveCreateTaskProjectId(projects, initialProjectId);
+    });
+  }, [initialProjectId, projects]);
 
   const users = dataService.getUsers().filter((u) => u.status === 'ACTIVE');
   // Only users who belong to the selected project can be assigned

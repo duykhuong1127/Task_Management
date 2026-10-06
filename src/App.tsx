@@ -265,6 +265,7 @@ function WorkspaceApp() {
         <CreateTaskModal
           currentUser={currentUser}
           projects={projects}
+          initialProjectId={selectedProjectId}
           onClose={() => setShowCreateTask(false)}
           onSuccess={() => {
             setTasks([...dataService.getTasks()]);
